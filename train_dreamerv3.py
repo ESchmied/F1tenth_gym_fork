@@ -39,7 +39,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train DreamerV3 agent with F1tenth.")
     
     # Environment arguments
-    parser.add_argument("--task", type=str, default="Spielberg", help="Track/map name.")
+    parser.add_argument("--task", type=str, default=None, 
+                        help="Track/map name (default: random selection from all tracks).")
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
     parser.add_argument("--scan_beams", type=int, default=32, help="Number of LiDAR beams (subsampled from 1080).")
     parser.add_argument("--render", action="store_true", default=False, help="Enable rendering.")
@@ -81,7 +82,10 @@ def main():
     print(f"\n{'='*60}")
     print("DreamerV3 Training with F1tenth")
     print(f"{'='*60}")
-    print(f"Task: {args.task}")
+    if args.task is None:
+        print(f"Task: Random (all tracks)")
+    else:
+        print(f"Task: {args.task}")
     print(f"Num envs: {args.envs}")
     print(f"Steps: {args.steps}")
     print(f"Model size: {args.model_size}")
@@ -125,8 +129,10 @@ def main():
     logdir = os.path.expanduser(args.logdir) + f'/{elements.timestamp()}'
     
     # Apply F1tenth-specific settings
+    # Store task as-is (None for random, or specific task name)
+    task_name = 'f1tenth_random' if args.task is None else f'f1tenth_{args.task}'
     f1tenth_config = {
-        'task': f'f1tenth_{args.task}',
+        'task': task_name,
         'seed': args.seed,
         'logdir': logdir,
         'batch_size': args.batch_size,
@@ -209,8 +215,12 @@ def make_env(config, env_args, index=0):
     
     # Strip 'f1tenth_' prefix if present
     task = env_args['task']
-    if task.startswith('f1tenth_'):
+    if task and task.startswith('f1tenth_'):
         task = task[8:]
+    
+    # Convert 'random' to None for random track selection
+    if task == 'random':
+        task = None
     
     env = F1Tenth(
         task=task,
@@ -256,6 +266,10 @@ def make_agent(config):
     task = config.task
     if task.startswith('f1tenth_'):
         task = task[8:]
+    
+    # Convert 'random' to None - for space creation, use Spielberg as default
+    if task == 'random' or task is None:
+        task = 'Spielberg'  # Use a default map just to get obs/act spaces
     
     # Create a temporary env to get spaces
     env = F1Tenth(task=task, num_agents=1, obs_type='features', scan_beams=32)

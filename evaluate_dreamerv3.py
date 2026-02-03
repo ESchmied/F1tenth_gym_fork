@@ -104,8 +104,12 @@ def create_env(task, render=False, scan_beams=32):
     from f1tenth import F1Tenth
     
     # Strip f1tenth_ prefix if present
-    if task.startswith('f1tenth_'):
+    if task and task.startswith('f1tenth_'):
         task = task[8:]
+    
+    # Convert 'random' to None for random track selection
+    if task == 'random':
+        task = None
     
     # Create environment
     env = F1Tenth(
@@ -129,10 +133,22 @@ def create_env(task, render=False, scan_beams=32):
     return env
 
 
-def run_episode(env, agent, carry, render=False):
+def run_episode(env, agent, carry, render=False, print_track=False):
     """Run a single episode and return statistics."""
     # Reset environment - step with reset=True
     obs = env.step({'action': np.zeros(env.act_space['action'].shape, dtype=np.float32), 'reset': True})
+    
+    # Print current track if requested
+    if print_track and hasattr(env, '_env'):
+        # Unwrap to get the actual F1Tenth environment
+        actual_env = env
+        while hasattr(actual_env, 'env') or hasattr(actual_env, '_env'):
+            if hasattr(actual_env, '_current_task'):
+                print(f"  Track: {actual_env._current_task}")
+                break
+            actual_env = getattr(actual_env, 'env', getattr(actual_env, '_env', None))
+            if actual_env is None:
+                break
     
     # Initial render after reset
     if render:
@@ -179,7 +195,8 @@ def run_episode(env, agent, carry, render=False):
 def main():
     parser = argparse.ArgumentParser(description='Evaluate DreamerV3 F1tenth model')
     parser.add_argument('checkpoint', type=str, help='Path to checkpoint directory')
-    parser.add_argument('--task', type=str, default=None, help='Task/track name (overrides config, e.g., Monza)')
+    parser.add_argument('--task', type=str, default=None, 
+                        help='Task/track name (default: random selection from all tracks, e.g., Monza, Spielberg)')
     parser.add_argument('--episodes', type=int, default=5, help='Number of evaluation episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
     parser.add_argument('--scan_beams', type=int, default=32, help='Number of LiDAR beams (subsampled from 1080)')
@@ -205,7 +222,11 @@ def main():
     print(f"Loading configuration...")
     config = load_config(checkpoint_dir, task_override=args.task, model_size_override=args.model_size)
     
-    print(f"Task: {config.task}")
+    # Display task info
+    if config.task == 'f1tenth_random' or config.task is None:
+        print(f"Task: Random (all tracks)")
+    else:
+        print(f"Task: {config.task}")
     print(f"Checkpoint: {checkpoint_dir}")
     print(f"Episodes: {args.episodes}")
     print(f"Render: {args.render}")
@@ -260,8 +281,8 @@ def main():
     for episode_idx in range(args.episodes):
         print(f"Episode {episode_idx + 1}/{args.episodes}...")
         
-        # Run episode
-        stats = run_episode(env, agent, carry, render=args.render)
+        # Run episode (print_track=True to show which track is being used)
+        stats = run_episode(env, agent, carry, render=args.render, print_track=True)
         
         all_rewards.append(stats['reward'])
         all_lengths.append(stats['length'])

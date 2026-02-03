@@ -4,6 +4,18 @@ import elements
 import embodied
 
 
+# Default list of F1tenth tracks for random selection (from maps directory)
+# Note: Mexico City excluded due to naming inconsistency (dir has space, files don't)
+DEFAULT_TRACKS = [
+    'Austin', 'BrandsHatch', 'Budapest', 'Catalunya', 
+    'Hockenheim', 'IMS', 'Melbourne', 'Montreal', 
+    'Monza', 'MoscowRaceway', 'Nuerburgring', 'Oschersleben', 
+    'Sakhir', 'SaoPaulo', 'Sepang', 'Shanghai', 
+    'Silverstone', 'Sochi', 'Spa', 'Spielberg', 
+    'YasMarina', 'Zandvoort'
+]
+
+
 class F1Tenth(embodied.Env):
     """
     Wrapper for F1tenth gym environment to work with DreamerV3.
@@ -30,7 +42,8 @@ class F1Tenth(embodied.Env):
     ):
         """
         Args:
-            task: Map name (e.g., 'Spielberg', 'Monza')
+            task: Map name (e.g., 'Spielberg', 'Monza'), list of maps for random selection,
+                  or None to use all available maps
             num_agents: Number of agents (1 for single agent training)
             obs_type: Type of observation ('original', 'features', 'kinematic_state', 'dynamic_state')
             obs_features: List of features for 'features' observation type
@@ -55,9 +68,36 @@ class F1Tenth(embodied.Env):
         if isinstance(control_input, tuple):
             control_input = list(control_input)
         
+        # Handle task specification (single map, list of maps, or None for all maps)
+        if task is None or (isinstance(task, str) and task.lower() == 'random'):
+            self._task_list = DEFAULT_TRACKS.copy()
+            self._random_tracks = True
+            initial_task = np.random.choice(self._task_list)
+        elif isinstance(task, (list, tuple)):
+            self._task_list = list(task)
+            self._random_tracks = True
+            initial_task = np.random.choice(self._task_list)
+        else:
+            self._task_list = [task]
+            self._random_tracks = False
+            initial_task = task
+        
+        self._current_task = initial_task
+        
+        # Store config parameters for recreation
+        self._num_agents = num_agents
+        self._obs_type = obs_type
+        self._obs_features = obs_features
+        self._timestep = timestep
+        self._integrator = integrator
+        self._control_input = control_input
+        self._render_mode = render_mode
+        self._scan_beams = scan_beams
+        self._kwargs = kwargs
+        
         # Create config for F1tenth environment
         config = {
-            'map': task,
+            'map': initial_task,
             'num_agents': num_agents,
             'timestep': timestep,
             'integrator': integrator,
@@ -76,9 +116,6 @@ class F1Tenth(embodied.Env):
         
         # Create the environment
         self._env = gym.make('f1tenth_gym:f1tenth-v0', config=config, render_mode=render_mode, **kwargs)
-        self._num_agents = num_agents
-        self._obs_type = obs_type
-        self._scan_beams = scan_beams
         self._done = True
         self._info = None
         
@@ -93,6 +130,38 @@ class F1Tenth(embodied.Env):
     @property
     def info(self):
         return self._info
+    
+    def _recreate_env(self, new_task):
+        """Recreate the environment with a new map."""
+        import gymnasium as gym
+        
+        # Close old environment
+        try:
+            self._env.close()
+        except Exception:
+            pass
+        
+        # Create config for new task
+        config = {
+            'map': new_task,
+            'num_agents': self._num_agents,
+            'timestep': self._timestep,
+            'integrator': self._integrator,
+            'control_input': self._control_input,
+            'observation_config': {
+                'type': self._obs_type,
+            },
+            'reset_config': {
+                'type': 'rl_grid_static'
+            }
+        }
+        
+        # Add features if needed
+        if self._obs_features is not None and self._obs_type == 'features':
+            config['observation_config']['features'] = self._obs_features
+        
+        # Create new environment
+        self._env = gym.make('f1tenth_gym:f1tenth-v0', config=config, render_mode=self._render_mode, **self._kwargs)
 
     @functools.cached_property
     def obs_space(self):
@@ -210,6 +279,15 @@ class F1Tenth(embodied.Env):
         # Handle reset (check if this is a reset call via _done flag or lack of action)
         if action.get('reset', False) or self._done:
             self._done = False
+            
+            # Select a new random track if using multiple tracks
+            if self._random_tracks:
+                new_task = np.random.choice(self._task_list)
+                if new_task != self._current_task:
+                    # Need to recreate environment with new map
+                    self._current_task = new_task
+                    self._recreate_env(new_task)
+            
             obs, self._info = self._env.reset()
             return self._obs(obs, 0.0, is_first=True)
         
