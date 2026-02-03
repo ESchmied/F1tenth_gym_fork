@@ -323,7 +323,11 @@ class F110Env(gym.Env):
         obs = self.observation_type.observe()
 
         # times
-        reward = self.timestep
+        reward = self.sim.agents[self.ego_idx].state[3]
+        # if collision, big negative reward
+        for i in range(self.num_agents):
+            if self.sim.collisions[i]:
+                reward = -100.0
         self.current_time = self.current_time + self.timestep
 
         # update data member

@@ -302,10 +302,10 @@ def main():
             "control_input": ["speed", "steering_angle"],
             "model": "st",
             "observation_config": {"type": "kinematic_state"},
-            "params": {"mu": 1.0},
+            "params": {"mu": 0.4},
             "reset_config": {"type": "rl_random_static"},
         },
-        render_mode="human",
+        render_mode="human_fast",
     )
     track = env.unwrapped.track
 

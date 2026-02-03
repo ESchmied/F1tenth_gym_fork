@@ -1,3 +1,17 @@
+# My Changes
+- install DreamerV3 (danijar) into Dockerfile directly
+- DreamerV3 training scripts (and gym wrapper etc)
+- realcar folder (ROS package for car inference)
+
+
+
+
+
+
+
+
+
+
 ![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
 ![Docker](https://github.com/f1tenth/f1tenth_gym/actions/workflows/docker.yml/badge.svg)
 ![Code Style](https://github.com/f1tenth/f1tenth_gym/actions/workflows/lint.yml/badge.svg)

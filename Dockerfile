@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-FROM ubuntu:20.04
+FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
 
 ARG DEBIAN_FRONTEND="noninteractive"
 ENV LIBGL_ALWAYS_INDIRECT=1
@@ -46,9 +46,23 @@ RUN pip3 install --upgrade pip
 RUN pip3 install PyOpenGL \
                  PyOpenGL_accelerate
 
+RUN apt-get update && apt-get install -y \
+  ffmpeg git vim curl software-properties-common grep \
+  libglew-dev x11-xserver-utils xvfb wget \
+  libgl1-mesa-glx libglib2.0-0 \
+  && apt-get clean
+
 RUN mkdir /f1tenth_gym
 COPY . /f1tenth_gym
 
+RUN cd /f1tenth_gym && \
+    git clone https://github.com/defrag-bambino/dreamerv3-fork.git && \
+    cd dreamerv3-fork && \
+    pip3 install -r requirements.txt && \
+    pip3 install -e . && \
+    cd .. && \
+    pip3 install tensorflow -I
+    
 RUN cd /f1tenth_gym && \
     pip3 install -e .
 

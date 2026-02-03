@@ -171,3 +171,7 @@ cython_debug/
 *.zip
 
 **/maps/*
+**/inference_logs_eval/*
+**/models/*
+**/videos/*
+*.onnx
