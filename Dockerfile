@@ -53,7 +53,6 @@ RUN apt-get update && apt-get install -y \
   && apt-get clean
 
 RUN mkdir /f1tenth_gym
-COPY . /f1tenth_gym
 
 RUN cd /f1tenth_gym && \
     git clone https://github.com/defrag-bambino/dreamerv3-fork.git && \
@@ -63,6 +62,8 @@ RUN cd /f1tenth_gym && \
     cd .. && \
     pip3 install tensorflow -I
     
+COPY . /f1tenth_gym
+
 RUN cd /f1tenth_gym && \
     pip3 install -e .
 

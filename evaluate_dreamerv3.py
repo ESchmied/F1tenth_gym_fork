@@ -14,7 +14,6 @@ Usage:
 import sys
 import pathlib
 import argparse
-import time
 import numpy as np
 
 import elements
@@ -130,17 +129,8 @@ def create_env(task, render=False, scan_beams=32):
     return env
 
 
-def run_episode(env, agent, carry, render=False, render_delay=0.01):
+def run_episode(env, agent, carry, render=False):
     """Run a single episode and return statistics."""
-    # Initialize pygame if rendering
-    if render:
-        try:
-            import pygame
-            pygame.init()
-        except ImportError:
-            print("Warning: pygame not available, rendering disabled")
-            render = False
-    
     # Reset environment - step with reset=True
     obs = env.step({'action': np.zeros(env.act_space['action'].shape, dtype=np.float32), 'reset': True})
     
@@ -174,16 +164,6 @@ def run_episode(env, agent, carry, render=False, render_delay=0.01):
         # Render if requested
         if render:
             env.render()
-            # Process pygame events to keep window responsive
-            try:
-                import pygame
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        done = True
-                pygame.display.flip()  # Update display
-            except:
-                pass
-            time.sleep(render_delay)
         
         # Track statistics (remove batch dimension for stats)
         episode_reward += obs['reward'][0]
@@ -202,7 +182,6 @@ def main():
     parser.add_argument('--task', type=str, default=None, help='Task/track name (overrides config, e.g., Monza)')
     parser.add_argument('--episodes', type=int, default=5, help='Number of evaluation episodes')
     parser.add_argument('--render', action='store_true', help='Render the environment')
-    parser.add_argument('--render_delay', type=float, default=0.01, help='Delay between renders (seconds)')
     parser.add_argument('--scan_beams', type=int, default=32, help='Number of LiDAR beams (subsampled from 1080)')
     parser.add_argument('--model_size', type=str, default=None,
                         choices=['size1m', 'size12m', 'size25m', 'size50m', 'size100m', 'size200m', 'size400m'],
@@ -282,7 +261,7 @@ def main():
         print(f"Episode {episode_idx + 1}/{args.episodes}...")
         
         # Run episode
-        stats = run_episode(env, agent, carry, render=args.render, render_delay=args.render_delay)
+        stats = run_episode(env, agent, carry, render=args.render)
         
         all_rewards.append(stats['reward'])
         all_lengths.append(stats['length'])

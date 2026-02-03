@@ -5,9 +5,18 @@
 
 
 
-
-
-
+```bash
+docker build -f Dockerfile -t f1tenth_gymdock .
+```
+```bash
+docker run -it --rm   --gpus all   -v ~/logdir/docker:/root/logdir   -e DISPLAY=$DISPLAY   -e NVIDIA_VISIBLE_DEVICES=all   -e NVIDIA_DRIVER_CAPABILITIES=all   -v /tmp/.X11-unix:/tmp/.X11-unix   f1tenth_gymdock:latest
+```
+```bash
+python train_dreamerv3.py --task Spielberg --model_size size12m --envs 100 --steps 1_000_000 --train_ratio 8.0
+```
+```bash
+python3 evaluate_dreamerv3.py /root/logdir/f1tenth/20260202T153337/ckpt/20260202T154935F451612/ --render --task Spielberg
+```
 
 
 
