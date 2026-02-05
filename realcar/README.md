@@ -1,189 +1,330 @@
-# F1TENTH ONNX Inference - Docker Deployment
+# F1TENTH Real Car - DreamerV3 Training & Inference
 
-This directory contains everything needed to deploy your trained F1TENTH model to a real RC car using ROS2 Foxy.
+This folder contains ROS2 packages for training and deploying DreamerV3 agents on real F1TENTH cars, enabling seamless sim-to-real transfer.
 
-## Structure
+## Docker Quick Start
 
-```
-realcar/
-├── Dockerfile                          # Docker container setup
-├── entrypoint.sh                       # Container entrypoint script
-├── f1tenth_onnx_inference/            # ROS2 package
-│   ├── f1tenth_onnx_inference/
-│   │   ├── __init__.py
-│   │   └── inference_node.py          # Main inference node
-│   ├── launch/
-│   │   └── inference.launch.py        # Launch file
-│   ├── resource/
-│   ├── package.xml                     # ROS2 package manifest
-│   └── setup.py                        # Python package setup
-└── README.md                           # This file
-```
+### Build the Container
 
-## Prerequisites
-
-1. **Export your trained model to ONNX:**
-   ```bash
-   python export_onnx.py models/your_model.zip --deterministic --verify
-   ```
-
-2. **Copy the ONNX model to this directory:**
-   ```bash
-   cp models/your_model.onnx realcar/final_model.onnx
-   ```
-
-## Building the Docker Image
+**Recommended: Build from repository root** (includes all training scripts):
 
 ```bash
-cd realcar
-docker build -t f1tenth-onnx-inference:latest .
+cd /path/to/f1tenth_gym_fork
+docker build -t f1tenth-dreamer:latest -f Dockerfile.realcar .
 ```
 
-## Running on the F1TENTH Car
+Alternative: Build from realcar folder (requires mounting scripts at runtime):
 
-### Option 1: Docker Run (Basic)
+```bash
+cd /path/to/f1tenth_gym_fork/realcar
+docker build -t f1tenth-dreamer:latest .
+```
+
+### Run Training on Real Car
+
+```bash
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  IMPORTANT: Must use --net=host and --ipc=host for ROS2 communication!  │
+# └─────────────────────────────────────────────────────────────────────────┘
+
+docker run --rm -it \
+    --net=host \
+    --ipc=host \
+    --gpus all \
+    -v ~/logdir:/logdir \
+    -v /path/to/sim_checkpoint:/checkpoints \
+    f1tenth-dreamer:latest \
+    python3 train_dreamerv3.py --real \
+        --from_checkpoint /checkpoints/ckpt \
+        --max_speed 3.0 \
+        --logdir /logdir
+```
+
+### Run Inference Only
 
 ```bash
 docker run --rm -it \
-  --network host \
-  -v $(pwd)/final_model.onnx:/models/final_model.onnx:ro \
-  f1tenth-onnx-inference:latest
+    --net=host \
+    --ipc=host \
+    -v /path/to/model.onnx:/models/model.onnx \
+    f1tenth-dreamer:latest \
+    ros2 launch f1tenth_onnx_inference inference.launch.py \
+        model_path:=/models/model.onnx
 ```
 
-### Option 2: Docker Run with Custom Parameters
+### Interactive Shell
 
 ```bash
 docker run --rm -it \
-  --network host \
-  -v $(pwd)/final_model.onnx:/models/final_model.onnx:ro \
-  f1tenth-onnx-inference:latest \
-  ros2 launch f1tenth_onnx_inference inference.launch.py \
-    model_path:=/models/final_model.onnx \
-    inference_rate:=50.0 \
-    max_speed:=5.0 \
-    max_steering_angle:=0.4189
+    --net=host \
+    --ipc=host \
+    --gpus all \
+    -v ~/logdir:/logdir \
+    f1tenth-dreamer:latest \
+    bash
 ```
 
-### Option 3: Docker Compose (Recommended)
+### Network Configuration Warning
 
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  f1tenth_inference:
-    image: f1tenth-onnx-inference:latest
-    network_mode: host
-    volumes:
-      - ./final_model.onnx:/models/final_model.onnx:ro
-    environment:
-      - ROS_DOMAIN_ID=0
-    command: >
-      ros2 launch f1tenth_onnx_inference inference.launch.py
-        model_path:=/models/final_model.onnx
-        inference_rate:=50.0
-        max_speed:=5.0
-        max_steering_angle:=0.4189
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│  WARNING: ROS_LOCALHOST_ONLY                                            │
+│                                                                         │
+│  The F1TENTH car MUST have ROS_LOCALHOST_ONLY=0 set!                    │
+│  Otherwise, the container cannot communicate with the car's ROS2 nodes. │
+│                                                                         │
+│  On the car, either:                                                    │
+│    • Run before starting ROS2: export ROS_LOCALHOST_ONLY=0              │
+│    • Or add to ~/.bashrc: export ROS_LOCALHOST_ONLY=0                   │
+│                                                                         │
+│  Docker run flags (REQUIRED):                                           │
+│    • --net=host    (share host network namespace)                       │
+│    • --ipc=host    (share host IPC namespace)                           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Then run:
+## Overview
+
+The real car integration provides:
+- **Same interface as simulation**: The `F1TenthReal` environment wrapper matches the `F1Tenth` simulation interface exactly
+- **Sim-to-real transfer**: Train in simulation, then finetune on the real car with the same codebase
+- **Safety features**: Configurable speed limits, collision detection, and emergency stop
+- **Flexible deployment**: Train directly on-car or export to ONNX for inference-only deployment
+
+## Packages
+
+### 1. `f1tenth_dreamer_training`
+For training DreamerV3 agents on the real car.
+
+### 2. `f1tenth_onnx_inference`
+For deploying trained models as ONNX for inference-only (no training).
+
+## Quick Start
+
+### Prerequisites
+
 ```bash
-docker-compose up
+# ROS2 (Humble or later)
+# Source your ROS2 installation
+source /opt/ros/humble/setup.bash
+
+# Python dependencies
+pip install numpy transforms3d
+
+# DreamerV3 dependencies (for training)
+pip install jax jaxlib elements embodied dreamerv3
 ```
+
+### Sim-to-Real Training Workflow
+
+#### Step 1: Train in Simulation
+
+```bash
+# Train on random tracks for variety
+python train_dreamerv3.py --task None --steps 5_000_000
+
+# Or train on a specific track
+python train_dreamerv3.py --task Spielberg --steps 5_000_000
+```
+
+This creates a checkpoint at `~/logdir/f1tenth/sim_<timestamp>/`.
+
+#### Step 2: Transfer to Real Car
+
+```bash
+# SSH into the car or run from the car's computer
+# Make sure ROS2 is running and the car's sensors are publishing
+
+# Start training on real car, loading simulation weights
+python train_dreamerv3.py --real \
+    --from_checkpoint ~/logdir/f1tenth/sim_<timestamp>/ckpt \
+    --max_speed 3.0 \
+    --steps 100_000
+```
+
+#### Step 3: Monitor Training
+
+```bash
+# In a separate terminal, monitor training progress
+tensorboard --logdir ~/logdir/f1tenth
+```
+
+### Real Car Training Options
+
+```bash
+python train_dreamerv3.py --real \
+    --from_checkpoint /path/to/sim_checkpoint \  # Load simulation weights
+    --max_speed 3.0 \                            # Max speed in m/s (safety!)
+    --step_frequency 20.0 \                      # Control frequency in Hz
+    --collision_threshold 0.3 \                  # Min distance for collision (m)
+    --scan_beams 32 \                            # Number of LiDAR beams
+    --scan_topic /scan \                         # LiDAR topic
+    --odom_topic /odom \                         # Odometry topic  
+    --drive_topic /drive \                       # Drive command topic
+    --steps 100_000 \                            # Training steps
+    --model_size size12m                         # Model size
+```
+
+### Manual Reset Mode (Default)
+
+During training, the environment will pause after each episode (collision) and prompt you to:
+1. Stop the car
+2. Place it back at a safe starting position
+3. Press ENTER to continue
+
+### Automatic Reset Mode (Optional)
+
+If you have external pose tracking (e.g., Vicon, OptiTrack):
+
+```bash
+python train_dreamerv3.py --real \
+    --automatic_reset \
+    --pose_topic /vrpn_client_node/car/pose \
+    --from_checkpoint /path/to/checkpoint
+```
+
+## Environment Interface
+
+The `F1TenthReal` environment has the same interface as `F1Tenth`:
+
+### Observation Space
+| Key | Shape | Description |
+|-----|-------|-------------|
+| `scan` | `(scan_beams,)` | Subsampled LiDAR scan |
+| `linear_vel_x` | `()` | Forward velocity (m/s) |
+| `ang_vel_z` | `()` | Angular velocity (rad/s) |
+| `delta` | `()` | Current steering angle (rad) |
+
+### Action Space
+| Key | Shape | Description |
+|-----|-------|-------------|
+| `action` | `(2,)` | `[steering_angle, speed]` |
+
+This matches the simulation interface exactly, enabling seamless transfer.
 
 ## ROS2 Topics
 
-### Subscribed Topics:
-- `/scan` (sensor_msgs/LaserScan): LiDAR data (1080 beams → subsampled to 12)
-- `/odom` (nav_msgs/Odometry): Vehicle odometry (position, velocity)
+### Subscribed
+- `/scan` (sensor_msgs/LaserScan): LiDAR scan data
+- `/odom` (nav_msgs/Odometry): Odometry data
 
-### Published Topics:
-- `/drive` (ackermann_msgs/AckermannDriveStamped): Autonomous driving commands
+### Published
+- `/drive` (ackermann_msgs/AckermannDriveStamped): Drive commands
 
-## Configuration Parameters
-
-- `model_path`: Path to ONNX model file (default: `/models/final_model.onnx`)
-- `inference_rate`: Inference frequency in Hz (default: `50.0`)
-- `max_speed`: Maximum speed in m/s (default: `20.0`)
-- `max_steering_angle`: Maximum steering angle in radians (default: `0.4189`)
-- `scan_subsample_size`: Number of LiDAR beams after subsampling (default: `12`)
-- `scan_original_size`: Original number of LiDAR beams (default: `1080`)
-
-## Testing Without Hardware
-
-You can test the node with simulated topics:
+## Building the ROS2 Packages
 
 ```bash
-# Terminal 1: Run the inference node
-docker run --rm -it --network host \
-  -v $(pwd)/final_model.onnx:/models/final_model.onnx:ro \
-  f1tenth-onnx-inference:latest
+# Navigate to your ROS2 workspace
+cd ~/f1tenth_ws/src
 
-# Terminal 2: Publish fake scan data
-ros2 topic pub /scan sensor_msgs/msg/LaserScan \
-  "{header: {frame_id: 'laser'}, \
-    angle_min: -2.35, angle_max: 2.35, \
-    angle_increment: 0.00436, \
-    range_min: 0.1, range_max: 30.0, \
-    ranges: [5.0] * 1080}"
+# Symlink or copy the realcar folder
+ln -s /path/to/f1tenth_gym_fork/realcar/f1tenth_dreamer_training .
 
-# Terminal 3: Publish fake odometry
-ros2 topic pub /odom nav_msgs/msg/Odometry \
-  "{pose: {pose: {position: {x: 0, y: 0, z: 0}, \
-                  orientation: {w: 1, x: 0, y: 0, z: 0}}}, \
-    twist: {twist: {linear: {x: 2.0, y: 0, z: 0}}}}"
+# Build
+cd ~/f1tenth_ws
+colcon build --packages-select f1tenth_dreamer_training
 
-# Terminal 4: Monitor drive commands
+# Source
+source install/setup.bash
+```
+
+## Safety Considerations
+
+⚠️ **IMPORTANT**: When training on a real car:
+
+1. **Start with low speeds**: Use `--max_speed 1.0` initially
+2. **Clear the area**: Ensure no obstacles or people nearby
+3. **Emergency stop**: Keep the hardware e-stop ready
+4. **Supervision**: Never leave training unattended
+5. **Test first**: Run inference mode to verify sensor data before training
+6. **Battery monitoring**: Check battery levels regularly
+
+## Debugging
+
+### Check sensor data is flowing:
+```bash
+ros2 topic echo /scan --once
+ros2 topic echo /odom --once
+```
+
+### Check drive commands:
+```bash
 ros2 topic echo /drive
 ```
 
-## Safety Notes
+### Test environment connection:
+```python
+from f1tenth_real import F1TenthReal
 
-⚠️ **IMPORTANT SAFETY CONSIDERATIONS:**
-
-1. **Start with low speeds**: Use `max_speed:=2.0` for initial testing
-2. **Emergency stop**: Have a way to immediately stop the car (e.g., RC override)
-3. **Test in safe environment**: Use a controlled space with safety barriers
-4. **Monitor behavior**: Watch the car's behavior closely during initial runs
-5. **Gradual increase**: Slowly increase max_speed as you verify safe operation
+# This will initialize ROS2 and wait for sensor data
+env = F1TenthReal(max_speed=1.0)
+obs = env.step({'reset': True})
+print(f"Observation keys: {obs.keys()}")
+print(f"Scan shape: {obs['scan'].shape}")
+print(f"Velocity: {obs['linear_vel_x']}")
+env.close()
+```
 
 ## Troubleshooting
 
-### Model not loading
-- Verify ONNX model path is correct
-- Check model was exported with `--verify` flag
-- Ensure model file is mounted in container
+### "ROS2 dependencies not found"
+Make sure you've sourced your ROS2 workspace and installed the required packages.
 
-### No sensor data
-- Check ROS2 topics: `ros2 topic list`
-- Verify ROS_DOMAIN_ID matches: `echo $ROS_DOMAIN_ID`
-- Check network connectivity in Docker
-
-### Poor performance
-- Reduce `inference_rate` if CPU usage is high
-- Check sensor data quality with `ros2 topic echo /scan`
-- Verify observation normalization matches training
-
-### Steering oscillations
-- Reduce `inference_rate` to smooth control
-- Consider adding exponential smoothing to actions
-- Check that `delta` (current steering) is being tracked correctly
-
-## Development
-
-To modify the inference node:
-
-1. Edit `f1tenth_onnx_inference/f1tenth_onnx_inference/inference_node.py`
-2. Rebuild the Docker image
-3. Test changes
-
-For local development without Docker:
+### "Timeout waiting for sensor data"
+Check that the car's sensors are publishing:
 ```bash
-cd f1tenth_onnx_inference
-colcon build
-source install/setup.bash
-ros2 run f1tenth_onnx_inference inference_node
+ros2 topic list
+ros2 topic hz /scan
+ros2 topic hz /odom
+```
+
+### "Training is too slow"
+- Reduce `--train_ratio` (e.g., `--train_ratio 8`)
+- Use a smaller model (`--model_size size1m`)
+- Increase step frequency (`--step_frequency 30`)
+
+### "Car doesn't respond"
+- Check `/drive` topic is being published
+- Verify no other nodes are publishing to `/drive`
+- Check the car's drive controller is running
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     train_dreamerv3.py                       │
+│                    (DreamerV3 Training Loop)                 │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      F1TenthReal                             │
+│                  (embodied.Env interface)                    │
+│                                                              │
+│   ┌─────────────┐   ┌──────────────┐   ┌───────────────┐   │
+│   │  obs_space  │   │  act_space   │   │    step()     │   │
+│   │  (same as   │   │  (same as    │   │  (ROS2 I/O)   │   │
+│   │   sim)      │   │   sim)       │   │               │   │
+│   └─────────────┘   └──────────────┘   └───────────────┘   │
+└─────────────────────────────┬───────────────────────────────┘
+                              │
+           ┌──────────────────┼──────────────────┐
+           │                  │                  │
+           ▼                  ▼                  ▼
+    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+    │    /scan    │    │    /odom    │    │   /drive    │
+    │  (LiDAR)    │    │ (Odometry)  │    │ (Commands)  │
+    └─────────────┘    └─────────────┘    └─────────────┘
+           │                  │                  │
+           └──────────────────┼──────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │   Real F1TENTH  │
+                    │      Car        │
+                    └─────────────────┘
 ```
 
 ## License

@@ -15,6 +15,10 @@ DEFAULT_TRACKS = [
     'YasMarina', 'Zandvoort'
 ]
 
+# Observation features that are available on both simulation and real car
+# Use this for sim-to-real transfer
+TRANSFERABLE_FEATURES = ['scan', 'linear_vel_x', 'ang_vel_z', 'delta']
+
 
 class F1Tenth(embodied.Env):
     """
@@ -38,6 +42,7 @@ class F1Tenth(embodied.Env):
         control_input=None,
         render_mode=None,
         scan_beams=12,
+        transferable=False,
         **kwargs
     ):
         """
@@ -52,13 +57,22 @@ class F1Tenth(embodied.Env):
             control_input: Control input type, list like ['speed', 'steering_angle']
             render_mode: Rendering mode for visualization
             scan_beams: Number of LiDAR beams to use (will subsample from 1080)
+            transferable: If True, use observation features compatible with real car
+                         for sim-to-real transfer (scan, linear_vel_x, ang_vel_z, delta)
         """
         # Import here to avoid dependency issues
         import gymnasium as gym
         
+        # Store transferable mode flag
+        self._transferable = transferable
+        
         # Default observation features for features mode
         if obs_features is None and obs_type == 'features':
-            obs_features = ['scan', 'pose_x', 'pose_y', 'pose_theta', 'linear_vel_x']
+            if transferable:
+                # Use features available on both sim and real car
+                obs_features = TRANSFERABLE_FEATURES.copy()
+            else:
+                obs_features = ['scan', 'pose_x', 'pose_y', 'pose_theta', 'linear_vel_x']
         
         # Default control input - don't use list literal, create it explicitly
         if control_input is None:
@@ -93,6 +107,7 @@ class F1Tenth(embodied.Env):
         self._control_input = control_input
         self._render_mode = render_mode
         self._scan_beams = scan_beams
+        # Note: self._transferable is already set above
         self._kwargs = kwargs
         
         # Create config for F1tenth environment
@@ -118,6 +133,9 @@ class F1Tenth(embodied.Env):
         self._env = gym.make('f1tenth_gym:f1tenth-v0', config=config, render_mode=render_mode, **kwargs)
         self._done = True
         self._info = None
+        
+        # Track current steering angle for 'delta' observation in transferable mode
+        self._current_steering = 0.0
         
         # Calculate scan subsampling indices (uniformly sample scan_beams from 1080)
         full_scan_size = 1080
@@ -215,6 +233,10 @@ class F1Tenth(embodied.Env):
                         spaces['collision'] = elements.Space(np.float32, (), 0.0, 1.0)
                     else:
                         spaces[key] = self._convert(space)
+                
+                # Add delta (steering angle) for transferable mode
+                if self._transferable and 'delta' not in spaces:
+                    spaces['delta'] = elements.Space(np.float32, (), -0.4189, 0.4189)
             else:
                 # Multi-agent: flatten nested structure
                 for agent_id, agent_space in gym_obs_space.spaces.items():
@@ -279,6 +301,7 @@ class F1Tenth(embodied.Env):
         # Handle reset (check if this is a reset call via _done flag or lack of action)
         if action.get('reset', False) or self._done:
             self._done = False
+            self._current_steering = 0.0  # Reset steering tracking
             
             # Select a new random track if using multiple tracks
             if self._random_tracks:
@@ -296,6 +319,8 @@ class F1Tenth(embodied.Env):
         if self._num_agents == 1:
             # action['action'] is shape (2,), we need (1, 2)
             gym_action = np.array([action['action']], dtype=np.float32)
+            # Track steering angle for 'delta' observation
+            self._current_steering = float(action['action'][0])
         else:
             # Stack multi-agent actions
             gym_action = np.array(
@@ -358,6 +383,10 @@ class F1Tenth(embodied.Env):
                         result[key] = np.float32(value)
                     else:
                         result[key] = np.asarray(value, dtype=np.float32)
+                
+                # Add delta (steering angle) for transferable mode
+                if self._transferable and 'delta' not in result:
+                    result['delta'] = np.float32(self._current_steering)
             else:
                 # Flatten multi-agent nested structure
                 for agent_id, agent_obs in obs.items():

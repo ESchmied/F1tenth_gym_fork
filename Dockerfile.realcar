@@ -1,47 +1,36 @@
 # =============================================================================
-# Dockerfile for F1TENTH DreamerV3 Training & Inference
+# Dockerfile for F1TENTH DreamerV3 Training & Inference on Real Car
 # =============================================================================
 #
-# RECOMMENDED: Use Dockerfile.realcar in the repository root instead!
-#              It includes all training scripts pre-built.
-#
-#   cd /path/to/f1tenth_gym_fork
+# Build from repository root:
 #   docker build -t f1tenth-dreamer:latest -f Dockerfile.realcar .
-#
-# This Dockerfile can be used standalone but requires mounting the training
-# scripts at runtime:
-#
-#   cd /path/to/f1tenth_gym_fork/realcar
-#   docker build -t f1tenth-dreamer:latest .
-#
-#   docker run --rm -it \
-#       --net=host \
-#       --ipc=host \
-#       --gpus all \
-#       -v /path/to/f1tenth_gym_fork:/f1tenth_gym \
-#       -v /path/to/checkpoints:/checkpoints \
-#       f1tenth-dreamer:latest \
-#       python3 /f1tenth_gym/train_dreamerv3.py --real --from_checkpoint /checkpoints/ckpt
 #
 # =============================================================================
 # IMPORTANT: ROS2 NETWORK CONFIGURATION
 # =============================================================================
 #
+# This container MUST be run with host networking to communicate with ROS2:
+#
+#   docker run --rm -it \
+#       --net=host \
+#       --ipc=host \
+#       --gpus all \
+#       -v /path/to/checkpoints:/checkpoints \
+#       -v /path/to/logs:/logdir \
+#       f1tenth-dreamer:latest \
+#       python3 /f1tenth_gym/train_dreamerv3.py --real --from_checkpoint /checkpoints/sim_ckpt
+#
 # ┌─────────────────────────────────────────────────────────────────────────┐
-# │  This container MUST be run with:                                       │
-# │    --net=host                                                           │
-# │    --ipc=host                                                           │
-# │                                                                         │
 # │  WARNING: The F1TENTH car must have ROS_LOCALHOST_ONLY=0 set!           │
 # │           Otherwise, the container cannot communicate with ROS2 nodes.  │
 # │                                                                         │
-# │  On the car: export ROS_LOCALHOST_ONLY=0                                │
+# │  On the car, run: export ROS_LOCALHOST_ONLY=0                           │
+# │  Or add to ~/.bashrc: export ROS_LOCALHOST_ONLY=0                       │
 # └─────────────────────────────────────────────────────────────────────────┘
 #
 # =============================================================================
 
 # Use ROS2 Humble with CUDA support for JAX training
-# For inference-only, you can use a lighter base image
 ARG BASE_IMAGE=ros:humble-ros-base
 FROM ${BASE_IMAGE}
 
@@ -74,7 +63,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --upgrade pip
 
 # Install JAX with CUDA support (for GPU training)
-# Note: Adjust cuda version if needed (cuda11 or cuda12)
+# Tries CUDA 12 first, then CUDA 11, then CPU-only
 RUN pip3 install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html || \
     pip3 install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html || \
     pip3 install --upgrade jax jaxlib
@@ -99,14 +88,14 @@ RUN pip3 install dreamerv3
 RUN pip3 install onnxruntime==1.16.3
 
 # =============================================================================
-# Create Workspace
+# Create ROS2 Workspace
 # =============================================================================
 RUN mkdir -p /ros2_ws/src
 WORKDIR /ros2_ws
 
 # Copy the ROS2 packages
-COPY f1tenth_onnx_inference /ros2_ws/src/f1tenth_onnx_inference
-COPY f1tenth_dreamer_training /ros2_ws/src/f1tenth_dreamer_training
+COPY realcar/f1tenth_onnx_inference /ros2_ws/src/f1tenth_onnx_inference
+COPY realcar/f1tenth_dreamer_training /ros2_ws/src/f1tenth_dreamer_training
 
 # Build the ROS2 workspace
 RUN /bin/bash -c "source /opt/ros/humble/setup.bash && \
@@ -114,54 +103,67 @@ RUN /bin/bash -c "source /opt/ros/humble/setup.bash && \
     colcon build --symlink-install"
 
 # =============================================================================
-# F1TENTH Gym and Training Scripts
+# Copy F1TENTH Gym and Training Scripts
 # =============================================================================
-#
-# The training scripts (f1tenth.py, f1tenth_real.py, train_dreamerv3.py) 
-# should be mounted at runtime since they are in the parent directory.
-#
-# When building, use the repository root as build context:
-#   cd /path/to/f1tenth_gym_fork
-#   docker build -t f1tenth-dreamer:latest -f realcar/Dockerfile .
-#
-# Or mount at runtime:
-#   docker run -v /path/to/f1tenth_gym_fork:/f1tenth_gym ...
-#
 
-# Create directory for f1tenth gym
+# Create directory and copy f1tenth gym package
 RUN mkdir -p /f1tenth_gym
+COPY f1tenth_gym /f1tenth_gym/f1tenth_gym
 
-# Create a placeholder README
-RUN echo "Mount f1tenth_gym_fork here or build with repo root as context" > /f1tenth_gym/README.txt
+# Copy training scripts and environment wrappers
+COPY f1tenth.py /f1tenth_gym/f1tenth.py
+COPY f1tenth_real.py /f1tenth_gym/f1tenth_real.py
+COPY train_dreamerv3.py /f1tenth_gym/train_dreamerv3.py
+
+# Install f1tenth_gym as editable package (if setup.py exists)
+WORKDIR /f1tenth_gym
+RUN pip3 install -e . 2>/dev/null || echo "No setup.py found, using PYTHONPATH instead"
 
 # =============================================================================
 # Setup Environment
 # =============================================================================
+WORKDIR /f1tenth_gym
 
 # Source ROS2 and workspace in bashrc
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && \
     echo "source /ros2_ws/install/setup.bash" >> ~/.bashrc && \
     echo "export PYTHONPATH=/f1tenth_gym:\$PYTHONPATH" >> ~/.bashrc && \
-    echo "" >> ~/.bashrc && \
-    echo "# Reminder: Car must have ROS_LOCALHOST_ONLY=0" >> ~/.bashrc && \
-    echo "echo ''" >> ~/.bashrc && \
-    echo "echo '================================================='" >> ~/.bashrc && \
-    echo "echo 'F1TENTH DreamerV3 Training Container'" >> ~/.bashrc && \
-    echo "echo '================================================='" >> ~/.bashrc && \
-    echo "echo 'WARNING: Ensure ROS_LOCALHOST_ONLY=0 on the car!'" >> ~/.bashrc && \
-    echo "echo ''" >> ~/.bashrc && \
-    echo "echo 'Training example:'" >> ~/.bashrc && \
-    echo "echo '  python3 /f1tenth_gym/train_dreamerv3.py --real --max_speed 3.0'" >> ~/.bashrc && \
-    echo "echo ''" >> ~/.bashrc && \
-    echo "echo 'Inference example:'" >> ~/.bashrc && \
-    echo "echo '  ros2 launch f1tenth_onnx_inference inference.launch.py'" >> ~/.bashrc && \
-    echo "echo '================================================='" >> ~/.bashrc && \
-    echo "echo ''" >> ~/.bashrc
+    echo "cd /f1tenth_gym" >> ~/.bashrc
 
-# Set the entrypoint
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Create entrypoint script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Source ROS2 setup\n\
+source /opt/ros/humble/setup.bash\n\
+source /ros2_ws/install/setup.bash\n\
+export PYTHONPATH=/f1tenth_gym:$PYTHONPATH\n\
+\n\
+echo ""\n\
+echo "============================================================"\n\
+echo "  F1TENTH DreamerV3 Training Container"\n\
+echo "============================================================"\n\
+echo ""\n\
+echo "  IMPORTANT: This container requires host networking!"\n\
+echo ""\n\
+echo "  If ROS2 topics are not visible, ensure:"\n\
+echo "    1. Container started with: --net=host --ipc=host"\n\
+echo "    2. Car has: export ROS_LOCALHOST_ONLY=0"\n\
+echo ""\n\
+echo "============================================================"\n\
+echo ""\n\
+\n\
+# Check ROS2 connectivity\n\
+if command -v ros2 &> /dev/null; then\n\
+    echo "Checking ROS2 connectivity..."\n\
+    timeout 3 ros2 topic list > /dev/null 2>&1 && echo "ROS2 topics accessible!" || echo "Warning: Cannot list ROS2 topics. Check network configuration."\n\
+    echo ""\n\
+fi\n\
+\n\
+exec "$@"\n\
+' > /entrypoint.sh && chmod +x /entrypoint.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
 
-# Default command shows help
-CMD ["bash", "-c", "echo 'Use: python3 /f1tenth_gym/train_dreamerv3.py --help'"]
+# Default command shows usage
+CMD ["bash", "-c", "echo '' && echo 'Usage Examples:' && echo '' && echo '  Training on real car:' && echo '    python3 train_dreamerv3.py --real --max_speed 3.0 --from_checkpoint /checkpoints/ckpt' && echo '' && echo '  Inference:' && echo '    ros2 launch f1tenth_onnx_inference inference.launch.py model_path:=/models/model.onnx' && echo '' && echo '  Interactive:' && echo '    bash' && echo '' && python3 train_dreamerv3.py --help"]
