@@ -7,7 +7,8 @@ This document provides a quick reference for setting up and using the F1TENTH re
 ### 1. Train in Simulation
 
 ```bash
-python3 train_dreamerv3.py --transferable \
+# All training automatically uses transferable observations (sim-to-real compatible)
+python3 train_dreamerv3.py \
     --task None \
     --model_size size12m \
     --envs 50 \
@@ -101,10 +102,10 @@ echo $ROS_LOCALHOST_ONLY  # Should output: 0
 ### Issue: Car moves erratically
 
 **Possible causes:**
-- Checkpoint not compatible (use `--transferable` in sim training)
 - Speed too high (reduce `--max_speed`)
 - Sensor data quality issues (check `/scan` topic)
 - Time synchronization issues (check `--step_frequency`)
+- Checkpoint trained on different observation space (ensure both sim and real use same version)
 
 ---
 
@@ -170,7 +171,7 @@ echo $ROS_LOCALHOST_ONLY  # Should output: 0
 ## 💡 Tips & Best Practices
 
 1. **Start with simulation**: Always train a baseline policy in simulation first
-2. **Use transferable mode**: Add `--transferable` flag for sim-to-real compatibility
+2. **Automatic sim-to-real**: All training uses transferable observations automatically
 3. **Test incrementally**: Start with low speeds and increase gradually
 4. **Monitor TensorBoard**: Watch training progress in real-time
 5. **Save frequently**: Checkpoints are saved automatically every N steps

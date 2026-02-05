@@ -111,7 +111,7 @@ def create_env(task, render=False, scan_beams=32):
     if task == 'random':
         task = None
     
-    # Create environment
+    # Create environment (uses rl_grid_random for random starting positions)
     env = F1Tenth(
         task=task,
         num_agents=1,
@@ -121,6 +121,9 @@ def create_env(task, render=False, scan_beams=32):
     )
     
     # Apply wrappers (same as in train_dreamerv3.py)
+    # Add TimeLimit wrapper (2000 steps per episode)
+    env = embodied.wrappers.TimeLimit(env, duration=2000)
+    
     for name, space in env.act_space.items():
         if name != 'reset' and not space.discrete:
             env = embodied.wrappers.NormalizeAction(env, name)

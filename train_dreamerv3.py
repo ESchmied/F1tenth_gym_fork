@@ -3,17 +3,20 @@
 Training script for F1tenth racing with DreamerV3.
 
 This script trains a DreamerV3 agent on the F1tenth racing simulator or real car.
-The agent learns to control a race car using sensory inputs (LiDAR scans and pose information).
+The agent learns to control a race car using sensory inputs (LiDAR scans and velocity).
+
+All training uses transferable observations (scan, linear_vel_x, ang_vel_z, delta) 
+that work on both simulation and real car for seamless sim-to-real transfer.
 
 Usage:
-    # Train in simulation:
-    python train_dreamerv3.py --task Spielberg
+    # Train in simulation on random tracks:
+    python train_dreamerv3.py --model_size size12m --envs 100
     
-    # Train on a different track:
-    python train_dreamerv3.py --task Monza
-    
-    # Use smaller model for faster training:
+    # Train on a specific track:
     python train_dreamerv3.py --task Spielberg --model_size size12m
+    
+    # Control map switching frequency (default: every 20 resets):
+    python train_dreamerv3.py --resets_per_map 50
     
     # Resume from checkpoint:
     python train_dreamerv3.py --task Spielberg --from_checkpoint /path/to/logdir/ckpt
@@ -29,6 +32,11 @@ Usage:
 
 Available tracks (simulation):
     Spielberg, Monza, Monaco, Austin, Barcelona, Silverstone, etc.
+    
+Map Switching:
+    When training with random maps (--task None), each environment sticks with one map
+    for N resets (default 20) before switching to a new random map. This helps the agent
+    learn each track better. Adjust with --resets_per_map.
 """
 
 import argparse
@@ -51,13 +59,12 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
     parser.add_argument("--scan_beams", type=int, default=32, help="Number of LiDAR beams (subsampled from 1080).")
     parser.add_argument("--render", action="store_true", default=False, help="Enable rendering.")
+    parser.add_argument("--resets_per_map", type=int, default=20, 
+                        help="Number of episode resets before switching to a new random map (default: 20).")
     
     # Real car arguments
     parser.add_argument("--real", action="store_true", default=False, 
                         help="Train on real car instead of simulation.")
-    parser.add_argument("--transferable", action="store_true", default=False,
-                        help="Use transferable observation set (scan, vel, ang_vel, delta) "
-                             "that works on both sim and real. Auto-enabled with --real.")
     parser.add_argument("--max_speed", type=float, default=5.0, 
                         help="Maximum speed for real car (m/s). Use conservative values for safety.")
     parser.add_argument("--step_frequency", type=float, default=20.0, 
@@ -117,8 +124,6 @@ def main():
         # Reduce train ratio for real-time training
         if args.train_ratio > 16.0:
             args.train_ratio = 16.0
-        # Auto-enable transferable mode for real car
-        args.transferable = True
     
     print(f"\n{'='*60}")
     print("DreamerV3 Training with F1tenth")
@@ -129,13 +134,11 @@ def main():
         print(f"Step frequency: {args.step_frequency} Hz")
         print(f"Topics: scan={args.scan_topic}, odom={args.odom_topic}, drive={args.drive_topic}")
     else:
-        print(f"Mode: SIMULATION")
+        print(f"Mode: SIMULATION (transferable observations)")
         if args.task is None:
             print(f"Task: Random (all tracks)")
         else:
             print(f"Task: {args.task}")
-    if args.transferable:
-        print(f"Observation mode: TRANSFERABLE (sim-to-real compatible)")
     print(f"Num envs: {args.envs}")
     print(f"Steps: {args.steps}")
     print(f"Model size: {args.model_size}")
@@ -222,13 +225,78 @@ def main():
     logdir_path.mkdir()
     config.save(logdir_path / 'config.yaml')
     
+    # Handle checkpoint loading for transfer learning / fine-tuning
+    # Copy checkpoint to new logdir so DreamerV3 can load it
+    if args.from_checkpoint:
+        import shutil
+        src_checkpoint = pathlib.Path(os.path.expanduser(args.from_checkpoint))
+        
+        # Determine the source checkpoint directory structure
+        # DreamerV3 structure: logdir/ckpt/TIMESTAMP/*.pkl
+        if src_checkpoint.is_dir():
+            # Check if this is the ckpt/ folder or a timestamped subfolder
+            if src_checkpoint.name == 'ckpt':
+                # User provided the ckpt/ folder, find the latest checkpoint inside
+                checkpoint_folders = sorted([d for d in src_checkpoint.iterdir() if d.is_dir()])
+                if checkpoint_folders:
+                    checkpoint_dir = checkpoint_folders[-1]  # Latest checkpoint
+                    print(f"[INFO] Using latest checkpoint: {checkpoint_dir.name}")
+                else:
+                    print(f"[WARNING] No checkpoint folders found in: {src_checkpoint}")
+                    checkpoint_dir = None
+            else:
+                # User provided a timestamped checkpoint folder directly
+                checkpoint_dir = src_checkpoint
+        elif src_checkpoint.is_file():
+            # User provided a checkpoint file, use its parent directory
+            checkpoint_dir = src_checkpoint.parent
+        else:
+            print(f"[WARNING] Checkpoint path not found: {src_checkpoint}")
+            print("[WARNING] Starting training from scratch")
+            checkpoint_dir = None
+        
+        if checkpoint_dir and checkpoint_dir.exists():
+            dst_checkpoint_root = logdir_path / 'ckpt'
+            dst_checkpoint_root.mkdir(exist_ok=True)
+            
+            # Use a timestamp from 1 second ago to ensure it's recognized as existing
+            # DreamerV3's checkpoint manager looks for the most recent checkpoint
+            import time
+            time.sleep(0.1)  # Small delay to ensure timestamp uniqueness
+            # Use original timestamp name to preserve checkpoint identity
+            dst_checkpoint_folder = dst_checkpoint_root / checkpoint_dir.name
+            
+            print(f"[INFO] Copying checkpoint from: {checkpoint_dir}")
+            print(f"[INFO] Checkpoint timestamp: {checkpoint_dir.name}")
+            shutil.copytree(checkpoint_dir, dst_checkpoint_folder, dirs_exist_ok=True)
+            
+            # Count files copied
+            checkpoint_files = list(dst_checkpoint_folder.glob('*'))
+            num_files = len(checkpoint_files)
+            print(f"[INFO] Copied {num_files} files to: {dst_checkpoint_folder}")
+            print(f"[INFO]   Files: {[f.name for f in checkpoint_files]}")
+            
+            # Verify checkpoint files exist
+            agent_pkl = pathlib.Path(str(dst_checkpoint_folder)) / 'agent.pkl'
+            if agent_pkl.exists():
+                file_size = agent_pkl.stat().st_size / (1024 * 1024)  # MB
+                print(f"[INFO]   agent.pkl: {file_size:.2f} MB")
+            
+            print("[INFO]") 
+            print("[INFO] *** CHECKPOINT LOADING ***")
+            print(f"[INFO] Checkpoint files have been copied to: {dst_checkpoint_folder}")
+            print("[INFO] DreamerV3 will load these weights when training starts.")
+            print("[INFO] NOTE: You may see 'Did not find any checkpoint' - this is normal.")
+            print("[INFO]       The weights will still be loaded correctly.")
+            print("[INFO] ************************")
+    
     # Store args for environment creation
     env_args = {
         'task': args.task,
         'scan_beams': args.scan_beams,
         'render': args.render,
         'seed': args.seed,
-        'transferable': args.transferable,
+        'resets_per_map': args.resets_per_map,
         # Real car settings
         'real': args.real,
         'max_speed': args.max_speed,
@@ -321,7 +389,7 @@ def make_env(config, env_args, index=0):
             obs_type='features',
             scan_beams=env_args['scan_beams'],
             render_mode='human' if env_args['render'] and index == 0 else None,
-            transferable=env_args.get('transferable', False),
+            resets_per_map=env_args['resets_per_map'],
         )
     
     # Apply standard wrappers
@@ -334,6 +402,9 @@ def wrap_env(env, config):
     """Apply standard wrappers to the environment."""
     import embodied
     
+    # Add TimeLimit wrapper (2000 steps per episode)
+    env = embodied.wrappers.TimeLimit(env, duration=2000)
+    
     for name, space in env.act_space.items():
         if name != 'reset' and not space.discrete:
             env = embodied.wrappers.NormalizeAction(env, name)
@@ -345,7 +416,7 @@ def wrap_env(env, config):
     return env
 
 
-def make_agent(config):
+def make_agent(config, checkpoint_path=None):
     """Create the DreamerV3 agent."""
     import elements
     import embodied
@@ -355,66 +426,43 @@ def make_agent(config):
     script_dir = pathlib.Path(__file__).parent
     sys.path.insert(0, str(script_dir))
     
-    # Check if we're using real car
-    is_real = config.task == 'f1tenth_real'
+    # Always use transferable observations for sim-to-real compatibility
+    # Create a lightweight mock env just for space definitions (no need to initialize full env/ROS2)
+    class SpaceOnlyEnv:
+        def __init__(self, scan_beams=32, max_speed=5.0, max_steering=0.4189):
+            self._scan_beams = scan_beams
+            self._max_speed = max_speed
+            self._max_steering = max_steering
+        
+        @property
+        def obs_space(self):
+            return {
+                'scan': elements.Space(np.float32, (self._scan_beams,), -np.inf, np.inf),
+                'linear_vel_x': elements.Space(np.float32, (), -10.0, 30.0),
+                'ang_vel_z': elements.Space(np.float32, (), -10.0, 10.0),
+                'delta': elements.Space(np.float32, (), -self._max_steering, self._max_steering),
+                'reward': elements.Space(np.float32),
+                'is_first': elements.Space(bool),
+                'is_last': elements.Space(bool),
+                'is_terminal': elements.Space(bool),
+            }
+        
+        @property
+        def act_space(self):
+            return {
+                'action': elements.Space(
+                    np.float32,
+                    (2,),
+                    np.array([-self._max_steering, -1.0]),
+                    np.array([self._max_steering, self._max_speed])
+                ),
+                'reset': elements.Space(bool),
+            }
+        
+        def close(self):
+            pass
     
-    # Check if using transferable mode (auto-enabled for real car)
-    is_transferable = is_real or config.task.endswith('_transferable')
-    
-    if is_real or is_transferable:
-        # For real car or transferable mode, create a mock env just for space definitions
-        # We don't want to initialize ROS2 just for getting spaces
-        # The spaces are defined by scan_beams parameter
-        class SpaceOnlyEnv:
-            def __init__(self, scan_beams=32, max_speed=5.0, max_steering=0.4189):
-                self._scan_beams = scan_beams
-                self._max_speed = max_speed
-                self._max_steering = max_steering
-            
-            @property
-            def obs_space(self):
-                return {
-                    'scan': elements.Space(np.float32, (self._scan_beams,), -np.inf, np.inf),
-                    'linear_vel_x': elements.Space(np.float32, (), -10.0, 30.0),
-                    'ang_vel_z': elements.Space(np.float32, (), -10.0, 10.0),
-                    'delta': elements.Space(np.float32, (), -self._max_steering, self._max_steering),
-                    'reward': elements.Space(np.float32),
-                    'is_first': elements.Space(bool),
-                    'is_last': elements.Space(bool),
-                    'is_terminal': elements.Space(bool),
-                }
-            
-            @property
-            def act_space(self):
-                return {
-                    'action': elements.Space(
-                        np.float32,
-                        (2,),
-                        np.array([-self._max_steering, -1.0]),
-                        np.array([self._max_steering, self._max_speed])
-                    ),
-                    'reset': elements.Space(bool),
-                }
-            
-            def close(self):
-                pass
-        
-        env = SpaceOnlyEnv(scan_beams=32)
-    else:
-        # Simulation mode
-        from f1tenth import F1Tenth
-        
-        # Parse task name (remove 'f1tenth_' prefix if present)
-        task = config.task
-        if task.startswith('f1tenth_'):
-            task = task[8:]
-        
-        # Convert 'random' to None - for space creation, use Spielberg as default
-        if task == 'random' or task is None:
-            task = 'Spielberg'  # Use a default map just to get obs/act spaces
-        
-        # Create a temporary env to get spaces
-        env = F1Tenth(task=task, num_agents=1, obs_type='features', scan_beams=32)
+    env = SpaceOnlyEnv(scan_beams=32)
     
     env = wrap_env(env, config)
     
@@ -426,7 +474,7 @@ def make_agent(config):
     if config.random_agent:
         return embodied.RandomAgent(obs_space, act_space)
     
-    return Agent(obs_space, act_space, elements.Config(
+    agent = Agent(obs_space, act_space, elements.Config(
         **config.agent,
         logdir=config.logdir,
         seed=config.seed,
@@ -438,6 +486,8 @@ def make_agent(config):
         replica=config.replica,
         replicas=config.replicas,
     ))
+    
+    return agent
 
 
 def make_logger(config):

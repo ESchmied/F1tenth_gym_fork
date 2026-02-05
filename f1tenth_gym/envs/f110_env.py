@@ -323,7 +323,7 @@ class F110Env(gym.Env):
         obs = self.observation_type.observe()
 
         # times
-        reward = self.sim.agents[self.ego_idx].state[3]
+        reward = self.sim.agents[self.ego_idx].state[3] / 10.
         # if collision, big negative reward
         for i in range(self.num_agents):
             if self.sim.collisions[i]:

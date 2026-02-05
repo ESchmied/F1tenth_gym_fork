@@ -4,6 +4,9 @@ Simple example of using the F1tenth DreamerV3 wrapper directly.
 
 This demonstrates how to interact with the wrapped environment
 without running full DreamerV3 training.
+
+The environment automatically uses transferable observations (scan, linear_vel_x,
+ang_vel_z, delta) that work on both simulation and real car for sim-to-real transfer.
 """
 
 import sys
@@ -21,11 +24,12 @@ def main():
     print("Creating F1tenth environment...")
     
     # Create environment
+    # Note: Environment automatically uses transferable observations
+    # (scan, linear_vel_x, ang_vel_z, delta) for sim-to-real compatibility
     env = F1Tenth(
         task='Spielberg',           # Track name
         num_agents=1,               # Single agent
         obs_type='features',        # Use features observation
-        obs_features=['scan', 'pose_x', 'pose_y', 'pose_theta', 'linear_vel_x'],
         timestep=0.01,              # 10ms physics timestep
         integrator='rk4',           # Runge-Kutta 4 integration
         scan_beams=12,              # Subsample LiDAR to 12 beams

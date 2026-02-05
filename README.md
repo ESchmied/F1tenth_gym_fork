@@ -11,7 +11,7 @@
 
 🏎️ **Seamless Sim-to-Real Transfer**
 - Identical observation and action spaces between simulation and real car
-- Transferable observation mode for compatible feature sets
+- Automatic transferable observations (scan, velocity, steering) for sim-to-real compatibility
 - Load simulation checkpoints directly on hardware
 
 🚀 **DreamerV3 Integration**
@@ -21,6 +21,7 @@
 
 🔄 **Multi-Track Training**
 - Train on 22+ F1-scale tracks
+- Smart map rotation: each environment sticks with one map for 20 resets before switching
 - Random track selection for robust policies
 - Track-specific or generalist agents
 
@@ -63,14 +64,19 @@ docker run -it --rm \
 
 ### Training in Simulation
 ```bash
-# Train on all tracks (random selection each episode)
+# Train on all tracks (random selection)
+# All training uses transferable observations for sim-to-real compatibility
+# Each environment sticks with one map for 20 resets before switching
 python3 train_dreamerv3.py --model_size size12m --envs 100 --steps 1_000_000 --train_ratio 8.0
 
 # Train on specific track
 python3 train_dreamerv3.py --task Spielberg --model_size size12m --envs 100 --steps 1_000_000
 
-# Train with transferable observations (sim-to-real compatible)
-python3 train_dreamerv3.py --transferable --model_size size12m --envs 50 --steps 5_000_000
+# Longer training for better performance
+python3 train_dreamerv3.py --model_size size12m --envs 50 --steps 5_000_000
+
+# Adjust map switching frequency (default: 20 resets per map)
+python3 train_dreamerv3.py --model_size size12m --envs 100 --resets_per_map 50
 ```
 
 ### Evaluation
@@ -113,8 +119,8 @@ docker build -t f1tenth-dreamer:latest -f Dockerfile.realcar .
 #### Step 1: Train in Simulation (Sim Policy)
 
 ```bash
-# Train with transferable observations
-python3 train_dreamerv3.py --transferable \
+# Train with automatic sim-to-real compatible observations
+python3 train_dreamerv3.py \
     --task None \
     --model_size size12m \
     --envs 50 \
@@ -202,8 +208,26 @@ For more details, see [realcar/README.md](realcar/README.md).
 
 ## Architecture
 
-### Observation Space (Transferable Mode)
-For sim-to-real compatibility, use `--transferable` flag:
+### Training Features
+
+**Random Starting Positions**
+- Each episode, the car resets to a random position ANYWHERE along the raceline
+- Not just the starting grid - can spawn at any point on the track
+- Promotes better exploration and more robust policies
+- Prevents overfitting to specific starting locations
+
+**Episode Time Limit**
+- 2000 steps per episode maximum
+- Prevents infinite loops and ensures training progress
+- Episodes end early on collision or time limit
+
+**Map Rotation**
+- When training on multiple tracks, each environment sticks with one map for 20 resets
+- Then switches to a new random map
+- Configurable via `--resets_per_map` argument
+
+### Observation Space (Transferable - Default)
+All training uses transferable observations for sim-to-real compatibility:
 
 | Feature | Shape | Description | Source (Sim) | Source (Real) |
 |---------|-------|-------------|--------------|---------------|
@@ -242,7 +266,7 @@ f1tenth_gym_fork/
 ┌─────────────────────────────────────────────────────────────────┐
 │                    SIMULATION TRAINING                          │
 │                                                                 │
-│  train_dreamerv3.py --transferable --steps 5M                   │
+│  train_dreamerv3.py --steps 5M  (transferable obs automatic)    │
 │         │                                                       │
 │         ├─► F1Tenth (f1tenth.py)                                │
 │         │      └─► f1tenth_gym (Gymnasium)                      │

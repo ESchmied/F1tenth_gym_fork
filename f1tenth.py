@@ -16,13 +16,21 @@ DEFAULT_TRACKS = [
 ]
 
 # Observation features that are available on both simulation and real car
-# Use this for sim-to-real transfer
+# All environments use these features for sim-to-real compatibility
 TRANSFERABLE_FEATURES = ['scan', 'linear_vel_x', 'ang_vel_z', 'delta']
 
 
 class F1Tenth(embodied.Env):
     """
     Wrapper for F1tenth gym environment to work with DreamerV3.
+    
+    Automatically uses transferable observations (scan, velocity, steering) that work
+    on both simulation and real car for seamless sim-to-real transfer.
+    
+    Features:
+    - Random starting positions ANYWHERE on the raceline for maximum exploration
+    - 2000 step time limit per episode (added via TimeLimit wrapper)
+    - Transferable observations for sim-to-real compatibility
     
     Handles:
     - Converting gymnasium's new API (reset returns obs, info) to DreamerV3's expected format
@@ -42,7 +50,7 @@ class F1Tenth(embodied.Env):
         control_input=None,
         render_mode=None,
         scan_beams=12,
-        transferable=False,
+        resets_per_map=20,
         **kwargs
     ):
         """
@@ -57,22 +65,21 @@ class F1Tenth(embodied.Env):
             control_input: Control input type, list like ['speed', 'steering_angle']
             render_mode: Rendering mode for visualization
             scan_beams: Number of LiDAR beams to use (will subsample from 1080)
-            transferable: If True, use observation features compatible with real car
-                         for sim-to-real transfer (scan, linear_vel_x, ang_vel_z, delta)
+            resets_per_map: Number of episode resets before switching to a new random map (default: 20)
+            
+        Note: All environments use transferable observations (scan, linear_vel_x, ang_vel_z, delta)
+              for seamless sim-to-real transfer.
         """
         # Import here to avoid dependency issues
         import gymnasium as gym
         
-        # Store transferable mode flag
-        self._transferable = transferable
+        # Always use transferable mode for sim-to-real compatibility
+        self._transferable = True
         
         # Default observation features for features mode
         if obs_features is None and obs_type == 'features':
-            if transferable:
-                # Use features available on both sim and real car
-                obs_features = TRANSFERABLE_FEATURES.copy()
-            else:
-                obs_features = ['scan', 'pose_x', 'pose_y', 'pose_theta', 'linear_vel_x']
+            # Always use features available on both sim and real car
+            obs_features = TRANSFERABLE_FEATURES.copy()
         
         # Default control input - don't use list literal, create it explicitly
         if control_input is None:
@@ -98,6 +105,10 @@ class F1Tenth(embodied.Env):
         
         self._current_task = initial_task
         
+        # Track resets for map switching
+        self._resets_per_map = resets_per_map
+        self._reset_count = 0  # Number of resets on current map
+        
         # Store config parameters for recreation
         self._num_agents = num_agents
         self._obs_type = obs_type
@@ -121,7 +132,7 @@ class F1Tenth(embodied.Env):
                 'type': obs_type,
             },
             'reset_config': {
-                'type': 'rl_grid_static'  # Use raceline grid reset for consistent starting positions
+                'type': 'rl_random_random'  # Use raceline random reset - spawns anywhere on track
             }
         }
         
@@ -170,7 +181,7 @@ class F1Tenth(embodied.Env):
                 'type': self._obs_type,
             },
             'reset_config': {
-                'type': 'rl_grid_static'
+                'type': 'rl_random_random'  # Random starting positions anywhere on track
             }
         }
         
@@ -303,13 +314,18 @@ class F1Tenth(embodied.Env):
             self._done = False
             self._current_steering = 0.0  # Reset steering tracking
             
-            # Select a new random track if using multiple tracks
+            # Increment reset counter and switch map if needed
             if self._random_tracks:
-                new_task = np.random.choice(self._task_list)
-                if new_task != self._current_task:
-                    # Need to recreate environment with new map
-                    self._current_task = new_task
-                    self._recreate_env(new_task)
+                self._reset_count += 1
+                
+                # Switch to a new random map every N resets
+                if self._reset_count >= self._resets_per_map:
+                    new_task = np.random.choice(self._task_list)
+                    if new_task != self._current_task:
+                        # Need to recreate environment with new map
+                        self._current_task = new_task
+                        self._recreate_env(new_task)
+                    self._reset_count = 0  # Reset counter after switching maps
             
             obs, self._info = self._env.reset()
             return self._obs(obs, 0.0, is_first=True)
