@@ -113,8 +113,18 @@ source /opt/ros/humble/setup.bash
 # Python dependencies
 pip install numpy transforms3d
 
-# DreamerV3 dependencies (for training)
-pip install jax jaxlib elements embodied dreamerv3
+# DreamerV3 (for training) - install from source to avoid PyPI issues
+# IMPORTANT: Keep the directory for editable install to work
+git clone https://github.com/danijar/dreamerv3.git ~/dreamerv3
+cd ~/dreamerv3
+pip install -e .
+cd ~
+
+# JAX (GPU support recommended for training)
+pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# TensorFlow (required for TensorBoard logging in elements)
+pip install tensorflow-cpu
 ```
 
 ### Sim-to-Real Training Workflow

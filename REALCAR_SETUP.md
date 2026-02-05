@@ -23,6 +23,8 @@ cd /path/to/f1tenth_gym_fork
 docker build -t f1tenth-dreamer:latest -f Dockerfile.realcar .
 ```
 
+**Note:** The build installs DreamerV3 from GitHub (not PyPI) to avoid package issues. This takes a few minutes but ensures everything works correctly.
+
 ### 3. Deploy on Real Car
 
 **On the F1TENTH car, set:**

@@ -172,10 +172,11 @@ class F1TenthReal(embodied.Env):
         self._ros_node = rclpy.create_node('f1tenth_dreamer_env')
         
         # QoS profile for sensor data
+        # Use RELIABLE for consistency (test script uses default which is RELIABLE)
         sensor_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1
+            depth=10
         )
         
         # Subscribers
@@ -200,21 +201,48 @@ class F1TenthReal(embodied.Env):
             10
         )
         
+        self._ros_initialized = True
+        print(f"[F1TenthReal] ROS2 initialized - listening on {self._scan_topic}, {self._odom_topic}")
+        
         # Start ROS2 spinner in background thread
         self._spin_thread = threading.Thread(target=self._ros_spin, daemon=True)
         self._spin_thread.start()
         
-        self._ros_initialized = True
-        print(f"[F1TenthReal] ROS2 initialized - listening on {self._scan_topic}, {self._odom_topic}")
+        print(f"[F1TenthReal] Waiting for initial sensor data...")
+        
+        # Wait a bit for initial data
+        import time
+        time.sleep(2.0)
+        
+        # Check if we got any data
+        with self._lock:
+            if self._current_scan is None:
+                print(f"[F1TenthReal] WARNING: No data on {self._scan_topic} yet!")
+                print(f"[F1TenthReal] Check: ros2 topic list | grep {self._scan_topic}")
+                print(f"[F1TenthReal] Check: ros2 topic hz {self._scan_topic}")
+            if self._current_odom is None:
+                print(f"[F1TenthReal] WARNING: No data on {self._odom_topic} yet!")
+                print(f"[F1TenthReal] Check: ros2 topic list | grep {self._odom_topic}")
+                print(f"[F1TenthReal] Check: ros2 topic hz {self._odom_topic}")
 
     def _ros_spin(self):
         """Background thread for ROS2 spinning."""
         import rclpy
+        print("[F1TenthReal] ROS2 spinner thread started")
         while rclpy.ok() and self._ros_initialized:
-            rclpy.spin_once(self._ros_node, timeout_sec=0.01)
+            try:
+                rclpy.spin_once(self._ros_node, timeout_sec=0.1)
+            except Exception as e:
+                print(f"[F1TenthReal] Spinner error: {e}")
+                break
+        print("[F1TenthReal] ROS2 spinner thread stopped")
 
     def _scan_callback(self, msg):
         """Process incoming LiDAR scan."""
+        # First callback - log that we got data
+        if self._current_scan is None:
+            print(f"[F1TenthReal] First scan received! ({len(msg.ranges)} beams)")
+        
         scan_array = np.array(msg.ranges, dtype=np.float32)
         
         # Handle inf and nan values
@@ -240,6 +268,10 @@ class F1TenthReal(embodied.Env):
 
     def _odom_callback(self, msg):
         """Process incoming odometry."""
+        # First callback - log that we got data
+        if self._current_odom is None:
+            print(f"[F1TenthReal] First odom received!")
+        
         # Extract velocities
         linear_vel_x = msg.twist.twist.linear.x
         ang_vel_z = msg.twist.twist.angular.z
@@ -285,11 +317,12 @@ class F1TenthReal(embodied.Env):
     def _get_observation(self) -> Dict[str, Any]:
         """Get current observation from sensors."""
         # Wait for data with timeout
-        if not self._data_ready.wait(timeout=1.0):
+        if not self._data_ready.wait(timeout=2.0):
             print("[F1TenthReal] Warning: Timeout waiting for sensor data")
-            # Return zeros if no data
+            # Return safe default values (far distances) if no data
+            # Use max range to avoid false collision detection
             return {
-                'scan': np.zeros(self._scan_beams, dtype=np.float32),
+                'scan': np.full(self._scan_beams, 30.0, dtype=np.float32),  # Max range, not zeros!
                 'linear_vel_x': np.float32(0.0),
                 'ang_vel_z': np.float32(0.0),
                 'delta': np.float32(0.0),
@@ -319,7 +352,12 @@ class F1TenthReal(embodied.Env):
 
     def _check_collision(self, scan: np.ndarray) -> bool:
         """Check if any scan reading indicates collision."""
-        return np.any(scan < self._collision_threshold)
+        # Filter out invalid readings (0.0 or very close to 0)
+        # These often indicate no data rather than actual collision
+        valid_readings = scan[scan > 0.05]  # Ignore readings below 5cm
+        if len(valid_readings) == 0:
+            return False  # No valid data, assume no collision
+        return np.any(valid_readings < self._collision_threshold)
 
     def _compute_reward(self, obs: Dict[str, Any], collision: bool) -> float:
         """Compute reward based on velocity and collision status."""

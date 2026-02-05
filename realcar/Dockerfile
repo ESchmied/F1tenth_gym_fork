@@ -79,7 +79,7 @@ RUN pip3 install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/j
     pip3 install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html || \
     pip3 install --upgrade jax jaxlib
 
-# Install DreamerV3 and dependencies
+# Install DreamerV3 dependencies
 RUN pip3 install \
     numpy==1.24.3 \
     transforms3d==0.4.1 \
@@ -87,13 +87,15 @@ RUN pip3 install \
     ruamel.yaml \
     tensorboard \
     matplotlib \
-    pandas
+    pandas \
+    tensorflow-cpu
 
-# Install elements and embodied (DreamerV3 framework)
-RUN pip3 install elements embodied
-
-# Install DreamerV3
-RUN pip3 install dreamerv3
+# Clone and install DreamerV3 from source (includes embodied and elements)
+# This avoids PyPI package issues
+# Keep the source directory for editable install to work
+RUN git clone https://github.com/danijar/dreamerv3.git /opt/dreamerv3 && \
+    cd /opt/dreamerv3 && \
+    pip3 install -e .
 
 # Install ONNX runtime for inference mode
 RUN pip3 install onnxruntime==1.16.3
