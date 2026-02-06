@@ -317,8 +317,13 @@ def vehicle_dynamics_st(
     PSI = x[4]
     PSI_DOT = x[5]
     BETA = x[6]
-    # We have to wrap the slip angle to [-pi, pi]
-    # BETA = np.arctan2(np.sin(BETA), np.cos(BETA))
+    # Wrap the slip angle to [-pi, pi] to prevent numerical instability
+    BETA = np.arctan2(np.sin(BETA), np.cos(BETA))
+    # Clamp yaw rate to prevent unrealistic spinning (numba-compatible)
+    if PSI_DOT > 10.0:
+        PSI_DOT = 10.0
+    elif PSI_DOT < -10.0:
+        PSI_DOT = -10.0
 
     # gravity constant m/s^2
     g = 9.81
@@ -335,7 +340,8 @@ def vehicle_dynamics_st(
     ACCL = u[1]
 
     # switch to kinematic model for small velocities
-    if V < 0.5:
+    # Increased threshold to avoid numerical issues with V in denominators
+    if V < 1.0:
         # wheelbase
         lwb = lf + lr
         BETA_HAT = np.arctan(np.tan(DELTA) * lr / lwb)
@@ -362,6 +368,33 @@ def vehicle_dynamics_st(
         )
     else:
         # system dynamics
+        # Clamp velocity for division to prevent numerical instability (numba-compatible)
+        V_safe = V if V > 1.0 else 1.0  # Use at least 1.0 m/s for divisions
+        
+        # Calculate yaw acceleration with clamping
+        psi_dot_dot = ((mu * m) / (I * (lf + lr))) * (
+            lf * C_Sf * (g * lr - ACCL * h) * DELTA
+            + (lr * C_Sr * (g * lf + ACCL * h) - lf * C_Sf * (g * lr - ACCL * h)) * BETA
+            - (lf * lf * C_Sf * (g * lr - ACCL * h) + lr * lr * C_Sr * (g * lf + ACCL * h)) * (PSI_DOT / V_safe)
+        )
+        # Clamp yaw acceleration to prevent unrealistic spinning (numba-compatible)
+        if psi_dot_dot > 50.0:
+            psi_dot_dot = 50.0
+        elif psi_dot_dot < -50.0:
+            psi_dot_dot = -50.0
+        
+        # Calculate slip angle rate with clamping
+        beta_dot = (mu / (V_safe * (lr + lf))) * (
+            C_Sf * (g * lr - ACCL * h) * DELTA
+            - (C_Sr * (g * lf + ACCL * h) + C_Sf * (g * lr - ACCL * h)) * BETA
+            + (C_Sr * (g * lf + ACCL * h) * lr - C_Sf * (g * lr - ACCL * h) * lf) * (PSI_DOT / V_safe)
+        ) - PSI_DOT
+        # Clamp slip angle rate to prevent unrealistic values (numba-compatible)
+        if beta_dot > 5.0:
+            beta_dot = 5.0
+        elif beta_dot < -5.0:
+            beta_dot = -5.0
+        
         f = np.array(
             [
                 V * np.cos(PSI + BETA),  # X_DOT
@@ -369,31 +402,8 @@ def vehicle_dynamics_st(
                 STEER_VEL,  # DELTA_DOT
                 ACCL,  # V_DOT
                 PSI_DOT,  # PSI_DOT
-                ((mu * m) / (I * (lf + lr)))
-                * (
-                    lf * C_Sf * (g * lr - ACCL * h) * DELTA
-                    + (
-                        lr * C_Sr * (g * lf + ACCL * h)
-                        - lf * C_Sf * (g * lr - ACCL * h)
-                    )
-                    * BETA
-                    - (
-                        lf * lf * C_Sf * (g * lr - ACCL * h)
-                        + lr * lr * C_Sr * (g * lf + ACCL * h)
-                    )
-                    * (PSI_DOT / V)
-                ),  # PSI_DOT_DOT
-                (mu / (V * (lr + lf)))
-                * (
-                    C_Sf * (g * lr - ACCL * h) * DELTA
-                    - (C_Sr * (g * lf + ACCL * h) + C_Sf * (g * lr - ACCL * h)) * BETA
-                    + (
-                        C_Sr * (g * lf + ACCL * h) * lr
-                        - C_Sf * (g * lr - ACCL * h) * lf
-                    )
-                    * (PSI_DOT / V)
-                )
-                - PSI_DOT,  # BETA_DOT
+                psi_dot_dot,  # PSI_DOT_DOT (clamped)
+                beta_dot,  # BETA_DOT (clamped)
             ]
         )
 
