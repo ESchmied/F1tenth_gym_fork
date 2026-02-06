@@ -247,7 +247,9 @@ class F1Tenth(embodied.Env):
                 
                 # Add delta (steering angle) for transferable mode
                 if self._transferable and 'delta' not in spaces:
-                    spaces['delta'] = elements.Space(np.float32, (), -0.4189, 0.4189)
+                    # Add small epsilon for floating point tolerance
+                    delta_eps = 1e-5
+                    spaces['delta'] = elements.Space(np.float32, (), -0.4189 - delta_eps, 0.4189 + delta_eps)
             else:
                 # Multi-agent: flatten nested structure
                 for agent_id, agent_space in gym_obs_space.spaces.items():
@@ -402,7 +404,9 @@ class F1Tenth(embodied.Env):
                 
                 # Add delta (steering angle) for transferable mode
                 if self._transferable and 'delta' not in result:
-                    result['delta'] = np.float32(self._current_steering)
+                    # Clip to ensure within bounds (floating point precision issues)
+                    delta_clipped = np.clip(self._current_steering, -0.4189, 0.4189)
+                    result['delta'] = np.float32(delta_clipped)
             else:
                 # Flatten multi-agent nested structure
                 for agent_id, agent_obs in obs.items():

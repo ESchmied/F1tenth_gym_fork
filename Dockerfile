@@ -60,7 +60,9 @@ RUN cd /f1tenth_gym && \
     pip3 install -r requirements.txt && \
     pip3 install -e . && \
     cd .. && \
-    pip3 install tensorflow -I
+    pip3 install tensorflow -I && \
+    pip3 install matplotlib && \
+    pip3 install numpy --upgrade
     
 COPY . /f1tenth_gym
 

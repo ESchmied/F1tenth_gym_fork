@@ -50,6 +50,52 @@ docker run --rm -it \
 
 ---
 
+## 🎬 Evaluation (Simulation & Real Car)
+
+The evaluation script works identically for both simulation and real car, with diagnostic plots.
+
+### Simulation Evaluation
+```bash
+# From simulation checkpoint
+python3 evaluate_dreamerv3.py ~/logdir/f1tenth/sim_TIMESTAMP/ckpt \
+    --render \
+    --episodes 5
+
+# Specific track
+python3 evaluate_dreamerv3.py ~/logdir/f1tenth/sim_TIMESTAMP/ckpt \
+    --task Spielberg \
+    --render \
+    --episodes 3
+```
+
+### Real Car Evaluation
+```bash
+docker run --rm -it \
+    --net=host \
+    --ipc=host \
+    --gpus all \
+    -v ~/logdir:/logdir \
+    f1tenth-dreamer:latest \
+    python3 evaluate_dreamerv3.py /logdir/f1tenth/sim_TIMESTAMP/ckpt \
+        --real \
+        --max_speed 3.0 \
+        --episodes 5 \
+        --plot_dir /logdir/eval_plots
+```
+
+**Output:**
+- Episode statistics (reward, length)
+- Diagnostic plots for each episode:
+  - Reward over time
+  - Actions (steering, speed commands)
+  - Observations (velocity, yaw rate, steering angle)
+  - Command vs actual (steering, speed)
+  - LiDAR scan heatmap
+  - Polar scan snapshots
+- Summary statistics and plots
+
+---
+
 ## 📋 Checklist Before Real Car Training
 
 ### Prerequisites
@@ -140,6 +186,7 @@ echo $ROS_LOCALHOST_ONLY  # Should output: 0
 - **Simulation wrapper:** `f1tenth.py`
 - **Real car wrapper:** `f1tenth_real.py`
 - **Training script:** `train_dreamerv3.py`
+- **Evaluation script:** `evaluate_dreamerv3.py` (works for both sim & real)
 - **Real car Docker:** `Dockerfile.realcar`
 - **Documentation:** `realcar/README.md`
 

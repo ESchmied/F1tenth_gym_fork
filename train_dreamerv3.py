@@ -87,7 +87,7 @@ def parse_args():
     parser.add_argument("--steps", type=int, default=10_000_000, help="Total training steps.")
     parser.add_argument("--envs", type=int, default=4, help="Number of parallel environments.")
     parser.add_argument("--eval_envs", type=int, default=0, help="Number of evaluation environments.")
-    parser.add_argument("--train_ratio", type=float, default=32.0, help="Training updates per environment step.")
+    parser.add_argument("--train_ratio", type=float, default=8.0, help="Training updates per environment step.")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size for training.")
     parser.add_argument("--batch_length", type=int, default=64, help="Sequence length for training.")
     
@@ -486,6 +486,34 @@ def make_agent(config, checkpoint_path=None):
         replica=config.replica,
         replicas=config.replicas,
     ))
+    
+    # Explicitly load checkpoint if it exists (for --from_checkpoint)
+    # This ensures weights are loaded BEFORE training starts
+    ckpt_dir = pathlib.Path(config.logdir) / 'ckpt'
+    if ckpt_dir.exists():
+        # Check if there are any checkpoint folders
+        checkpoint_folders = sorted([d for d in ckpt_dir.iterdir() if d.is_dir()])
+        if checkpoint_folders:
+            latest_ckpt = checkpoint_folders[-1]
+            # Check if this checkpoint has agent.pkl (indicates it's a valid checkpoint to load)
+            if (latest_ckpt / 'agent.pkl').exists():
+                print(f"\n{'='*70}")
+                print(f"[CHECKPOINT] Explicitly loading checkpoint: {latest_ckpt.name}")
+                print(f"{'='*70}")
+                try:
+                    import traceback
+                    # Initialize checkpoint without path, then load with path
+                    cp = elements.Checkpoint()
+                    cp.agent = agent
+                    cp.load(latest_ckpt, keys=['agent'])
+                    print(f"[CHECKPOINT] ✓ Weights loaded successfully from: {latest_ckpt}")
+                    print(f"{'='*70}\n")
+                except Exception as e:
+                    print(f"[WARNING] Failed to load checkpoint: {e}")
+                    print(f"[WARNING] Error details:")
+                    traceback.print_exc()
+                    print(f"[WARNING] Training will start from scratch")
+                    print(f"{'='*70}\n")
     
     return agent
 

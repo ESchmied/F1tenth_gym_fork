@@ -329,11 +329,17 @@ class F1TenthReal(embodied.Env):
             }
         
         with self._lock:
+            # Clip delta to ensure it's within bounds (floating point precision issues)
+            delta_clipped = np.clip(
+                self._current_steering,
+                -self._max_steering_angle,
+                self._max_steering_angle
+            )
             obs = {
                 'scan': self._current_scan.copy(),
                 'linear_vel_x': self._current_odom['linear_vel_x'],
                 'ang_vel_z': self._current_odom['ang_vel_z'],
-                'delta': np.float32(self._current_steering),
+                'delta': np.float32(delta_clipped),
             }
             self._data_ready.clear()
         
@@ -372,11 +378,17 @@ class F1TenthReal(embodied.Env):
     @functools.cached_property
     def obs_space(self):
         """Define observation space matching simulation interface."""
+        # Add small epsilon to delta bounds for floating point tolerance
+        delta_eps = 1e-5
         spaces = {
             'scan': elements.Space(np.float32, (self._scan_beams,), -np.inf, np.inf),
             'linear_vel_x': elements.Space(np.float32, (), -10.0, 30.0),
             'ang_vel_z': elements.Space(np.float32, (), -10.0, 10.0),
-            'delta': elements.Space(np.float32, (), -self._max_steering_angle, self._max_steering_angle),
+            'delta': elements.Space(
+                np.float32, (),
+                -self._max_steering_angle - delta_eps,
+                self._max_steering_angle + delta_eps
+            ),
             # Standard DreamerV3 fields
             'reward': elements.Space(np.float32),
             'is_first': elements.Space(bool),
@@ -528,22 +540,30 @@ class F1TenthReal(embodied.Env):
 
     def close(self):
         """Clean up ROS2 resources."""
+        # Prevent double-shutdown
+        if not self._ros_initialized:
+            return
+        
         print("[F1TenthReal] Shutting down...")
-        self._stop_car()
+        
+        try:
+            self._stop_car()
+        except Exception as e:
+            print(f"[F1TenthReal] Warning during stop_car: {e}")
+        
         self._ros_initialized = False
         
+        # Destroy node first
         if self._ros_node is not None:
             try:
                 self._ros_node.destroy_node()
-            except:
-                pass
+                self._ros_node = None
+            except Exception as e:
+                print(f"[F1TenthReal] Warning during node destruction: {e}")
         
-        try:
-            import rclpy
-            if rclpy.ok():
-                rclpy.shutdown()
-        except:
-            pass
+        # Don't shutdown rclpy - it may be used by other nodes
+        # and embodied framework handles shutdown
+        # Shutting down here causes "terminate called without an active exception"
         
         print("[F1TenthReal] Shutdown complete")
 
