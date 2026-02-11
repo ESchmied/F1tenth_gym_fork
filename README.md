@@ -67,7 +67,7 @@ docker run -it --rm \
 # Train on all tracks (random selection)
 # All training uses transferable observations for sim-to-real compatibility
 # Each environment sticks with one map for 20 resets before switching
-python3 train_dreamerv3.py --model_size size12m --envs 100 --steps 1_000_000 --train_ratio 8.0
+python3 train_dreamerv3.py --model_size size12m --envs 100 --steps 1_000_000 --train_ratio 8.0 --replay.size 4000000
 
 # Train on specific track
 python3 train_dreamerv3.py --task Spielberg --model_size size12m --envs 100 --steps 1_000_000
@@ -145,12 +145,13 @@ docker run --rm -it \
     -v ~/logdir/f1tenth/sim_TIMESTAMP:/checkpoints \
     f1tenth-dreamer:latest \
     python3 train_dreamerv3.py --real \
-        --from_checkpoint /checkpoints/ckpt \
+        --from_checkpoint /logdir/yourcheckpoint \
         --max_speed 3.0 \
         --step_frequency 20.0 \
-        --collision_threshold 0.3 \
+        --collision_threshold 0.1 \
         --logdir /logdir \
-        --steps 100_000
+        --steps 10_000 \
+        --train_ratio 12.0
 ```
 
 #### Step 3: Monitor Training

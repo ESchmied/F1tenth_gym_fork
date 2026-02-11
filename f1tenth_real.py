@@ -59,7 +59,7 @@ class F1TenthReal(embodied.Env):
         max_steering_angle: float = 0.4189,
         step_frequency: float = 20.0,
         collision_threshold: float = 0.3,
-        collision_penalty: float = -100.0,
+        collision_penalty: float = -10.0,
         scan_topic: str = '/scan',
         odom_topic: str = '/odom',
         drive_topic: str = '/drive',
@@ -69,6 +69,7 @@ class F1TenthReal(embodied.Env):
         manual_reset: bool = True,
         reset_timeout: float = 30.0,
         velocity_reward_scale: float = 1.0,
+        dist_to_wall_start_neg_rew: float = 0.3,
         **kwargs
     ):
         """
@@ -91,6 +92,7 @@ class F1TenthReal(embodied.Env):
             manual_reset: Whether reset requires manual intervention
             reset_timeout: Timeout waiting for manual reset (seconds)
             velocity_reward_scale: Scale factor for velocity reward
+            dist_to_wall_start_neg_rew: Distance to wall (m) where negative reward starts (default: 0.4)
         """
         # Store configuration
         self._scan_beams = scan_beams
@@ -109,6 +111,7 @@ class F1TenthReal(embodied.Env):
         self._manual_reset = manual_reset
         self._reset_timeout = reset_timeout
         self._velocity_reward_scale = velocity_reward_scale
+        self._dist_to_wall_start_neg_rew = dist_to_wall_start_neg_rew
         
         # Calculate scan subsampling indices
         self._scan_indices = np.linspace(
@@ -273,7 +276,7 @@ class F1TenthReal(embodied.Env):
             print(f"[F1TenthReal] First odom received!")
         
         # Extract velocities
-        linear_vel_x = msg.twist.twist.linear.x
+        linear_vel_x = abs(msg.twist.twist.linear.x)
         ang_vel_z = msg.twist.twist.angular.z
         
         # Extract pose
@@ -297,7 +300,7 @@ class F1TenthReal(embodied.Env):
         """Publish drive command to the car."""
         # Apply safety limits
         steering = np.clip(steering, -self._max_steering_angle, self._max_steering_angle)
-        speed = np.clip(speed, -1.0, self._max_speed)  # Allow slight reverse
+        speed = np.clip(speed, -0.3, self._max_speed)  # Allow slight reverse
         
         msg = self._AckermannDriveStamped()
         msg.header.stamp = self._ros_node.get_clock().now().to_msg()
@@ -366,13 +369,40 @@ class F1TenthReal(embodied.Env):
         return np.any(valid_readings < self._collision_threshold)
 
     def _compute_reward(self, obs: Dict[str, Any], collision: bool) -> float:
-        """Compute reward based on velocity and collision status."""
+        """Compute reward based on velocity, collision status, and distance to walls."""
         if collision:
             return self._collision_penalty
         
         # Velocity-based reward (similar to simulation)
-        velocity_reward = obs['linear_vel_x'] * self._velocity_reward_scale
+        if obs['linear_vel_x'] > 0.5: # only reward if velocity is greater than 0.5 m/s, because otherwise it abuses odometry error
+            velocity_reward = obs['linear_vel_x'] * self._velocity_reward_scale
+        else:
+            velocity_reward = 0.0
         
+        # Distance-based penalty: negative reward when close to walls
+        # Find minimum distance to obstacles from scan
+        scan = obs.get('scan', None)
+        if scan is not None:
+            # Filter out invalid readings (inf, nan, or very large values)
+            valid_readings = scan[np.isfinite(scan) & (scan < 100.0)]
+            if len(valid_readings) > 0:
+                min_distance = np.min(valid_readings)
+                
+                # If distance is less than threshold, apply linear penalty
+                if min_distance < self._dist_to_wall_start_neg_rew:
+                    # Calculate penalty: 0 at threshold, -100 at collision_threshold
+                    # Linear interpolation
+                    distance_into_penalty_zone = self._dist_to_wall_start_neg_rew - min_distance
+                    penalty_zone_width = self._dist_to_wall_start_neg_rew - self._collision_threshold
+                    
+                    if penalty_zone_width > 0:
+                        # Normalize distance into penalty zone [0, 1]
+                        normalized_distance = min(1.0, distance_into_penalty_zone / penalty_zone_width)
+                        # Linear penalty from 0 to collision_penalty
+                        distance_penalty = self._collision_penalty * normalized_distance
+                        velocity_reward *= distance_penalty
+        
+        print("total reward: ", velocity_reward)
         return velocity_reward
 
     @functools.cached_property

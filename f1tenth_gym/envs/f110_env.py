@@ -104,6 +104,7 @@ class F110Env(gym.Env):
         self.model = DynamicModel.from_string(self.config["model"])
         self.observation_config = self.config["observation_config"]
         self.action_type = CarAction(self.config["control_input"], params=self.params)
+        self.dist_to_wall_start_neg_rew = self.config.get("dist_to_wall_start_neg_rew", 0.6)
 
         # radius to consider done
         self.start_thresh = 0.5  # 10cm
@@ -232,6 +233,7 @@ class F110Env(gym.Env):
             "control_input": ["speed", "steering_angle"],
             "observation_config": {"type": None},
             "reset_config": {"type": None},
+            "dist_to_wall_start_neg_rew": 0.6,  # Distance from track edge (m) where negative reward starts
         }
 
     def configure(self, config: dict) -> None:
@@ -248,6 +250,114 @@ class F110Env(gym.Env):
                 self.action_space = from_single_to_multi_action_space(
                     self.action_type.space, self.num_agents
                 )
+
+    def _is_off_track(self, x, y):
+        """
+        Check if a position (x, y) is outside the track boundaries.
+        
+        Args:
+            x (float): x-coordinate in world frame
+            y (float): y-coordinate in world frame
+            
+        Returns:
+            bool: True if position is off track (in occupied space), False otherwise
+        """
+        # Convert world coordinates to occupancy map grid coordinates
+        # Occupancy map origin is at bottom-left corner
+        origin_x, origin_y = self.track.spec.origin[0], self.track.spec.origin[1]
+        resolution = self.track.spec.resolution
+        
+        # Calculate grid indices
+        grid_x = int((x - origin_x) / resolution)
+        grid_y = int((y - origin_y) / resolution)
+        
+        # Check if indices are within map bounds
+        map_height, map_width = self.track.occupancy_map.shape
+        if grid_x < 0 or grid_x >= map_width or grid_y < 0 or grid_y >= map_height:
+            # Outside map bounds = off track
+            return True
+        
+        # Check if position is in occupied space (0.0 = wall, 255.0 = free)
+        # If occupancy value is close to 0, the car is off track
+        return self.track.occupancy_map[grid_y, grid_x] < 128.0
+
+    def _compute_distance_penalty(self, x, y, theta):
+        """
+        Compute negative reward based on distance to nearest wall using occupancy map.
+        Negative reward starts at dist_to_wall_start_neg_rew meters from the wall and increases linearly.
+        
+        Args:
+            x (float): x-coordinate in world frame
+            y (float): y-coordinate in world frame
+            theta (float): yaw angle (not used, kept for compatibility)
+            
+        Returns:
+            float: Negative reward penalty (0.0 if in safe zone, negative if near edges)
+        """
+        # Convert world coordinates to occupancy map grid coordinates
+        origin_x, origin_y = self.track.spec.origin[0], self.track.spec.origin[1]
+        resolution = self.track.spec.resolution
+        
+        # Calculate grid indices for car position
+        grid_x = int((x - origin_x) / resolution)
+        grid_y = int((y - origin_y) / resolution)
+        
+        # Check if indices are within map bounds
+        map_height, map_width = self.track.occupancy_map.shape
+        if grid_x < 0 or grid_x >= map_width or grid_y < 0 or grid_y >= map_height:
+            # Outside map bounds = off track, return max penalty
+            return -10.0
+        
+        # Raycast in multiple directions to find nearest wall
+        # Use 8 directions (N, NE, E, SE, S, SW, W, NW) for efficiency
+        angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
+        min_distance = float('inf')
+        
+        for angle in angles:
+            # Raycast in this direction
+            distance = 0.0
+            max_raycast_distance = 5.0  # meters, reasonable max distance to check
+            max_steps = int(max_raycast_distance / resolution)
+            
+            for step in range(max_steps):
+                distance += resolution
+                check_x = x + distance * np.cos(angle)
+                check_y = y + distance * np.sin(angle)
+                
+                check_grid_x = int((check_x - origin_x) / resolution)
+                check_grid_y = int((check_y - origin_y) / resolution)
+                
+                # Check bounds
+                if check_grid_x < 0 or check_grid_x >= map_width or check_grid_y < 0 or check_grid_y >= map_height:
+                    # Hit map boundary, treat as wall
+                    min_distance = min(min_distance, distance)
+                    break
+                
+                # Check if hit wall (occupied space)
+                if self.track.occupancy_map[check_grid_y, check_grid_x] < 128.0:
+                    min_distance = min(min_distance, distance)
+                    break
+        
+        # If no wall found (shouldn't happen), return no penalty
+        if min_distance == float('inf'):
+            return 0.0
+        
+        # If distance is greater than threshold, no penalty
+        if min_distance >= self.dist_to_wall_start_neg_rew:
+            return 0.0
+        
+        # Calculate penalty: linear from 0 at threshold to -100 at collision (0m)
+        # Penalty zone spans from dist_to_wall_start_neg_rew to 0
+        penalty_zone_width = self.dist_to_wall_start_neg_rew
+        distance_into_penalty_zone = (self.dist_to_wall_start_neg_rew - min_distance) / penalty_zone_width
+        
+        # Clamp to [0, 1]
+        distance_into_penalty_zone = min(1.0, max(0.0, distance_into_penalty_zone))
+        
+        # Linear penalty: 0 at threshold, -100 at wall
+        penalty = -10.0 * distance_into_penalty_zone
+        
+        return penalty
 
     def _check_done(self):
         """
@@ -289,7 +399,11 @@ class F110Env(gym.Env):
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
 
-        done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
+        # Check if ego agent is off track (car glitched through wall)
+        ego_off_track = self._is_off_track(self.poses_x[self.ego_idx], self.poses_y[self.ego_idx])
+        
+        # End episode when all agents complete laps OR ego car is off track
+        done = np.all(self.toggle_list >= 4) or ego_off_track
 
         return bool(done), self.toggle_list >= 4
 
@@ -323,11 +437,31 @@ class F110Env(gym.Env):
         obs = self.observation_type.observe()
 
         # times
-        reward = self.sim.agents[self.ego_idx].state[3] / 10.
+        speedx = self.sim.agents[self.ego_idx].state[3] / 10.
+        if speedx > 0.5:
+            reward = speedx * self.velocity_reward_scale
+        else:
+            reward = 0.0
+        
         # if collision, big negative reward
         for i in range(self.num_agents):
             if self.sim.collisions[i]:
-                reward = -100.0
+                reward = -1.0
+        
+        # Add distance-based penalty for being near track edges
+        # Only apply if not already in collision
+        distance_penalty = 0.0
+        if not self.sim.collisions[self.ego_idx]:
+            # Get pose directly from simulator (before _update_state is called)
+            ego_pose = self.sim.agent_poses[self.ego_idx]
+            ego_x = ego_pose[0]
+            ego_y = ego_pose[1]
+            ego_theta = ego_pose[2]
+            distance_penalty = self._compute_distance_penalty(ego_x, ego_y, ego_theta)
+            if distance_penalty != 0.0:
+                reward *= distance_penalty
+
+        #print("total reward: ", reward, "distance_penalty: ", distance_penalty)
         self.current_time = self.current_time + self.timestep
 
         # update data member

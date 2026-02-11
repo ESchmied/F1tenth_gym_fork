@@ -264,7 +264,11 @@ class RaceCar(object):
 
         # if in collision stop vehicle
         if in_collision:
-            self.state[3:] = 0.0
+            # Zero out velocities but preserve orientation (yaw_angle at index 4)
+            self.state[3] = 0.0  # vel
+            self.state[5] = 0.0  # yaw_rate
+            self.state[6] = 0.0  # slip_angle
+            # Don't modify state[4] (yaw_angle) to prevent car from flipping orientation
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 

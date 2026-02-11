@@ -330,6 +330,11 @@ class F1Tenth(embodied.Env):
                     self._reset_count = 0  # Reset counter after switching maps
             
             obs, self._info = self._env.reset()
+            
+            # Automatically render if render mode is enabled
+            if self._render_mode is not None:
+                self._env.render()
+            
             return self._obs(obs, 0.0, is_first=True)
         
         # Convert action from DreamerV3 format to gym format
@@ -349,6 +354,10 @@ class F1Tenth(embodied.Env):
         # Execute step
         obs, reward, terminated, truncated, self._info = self._env.step(gym_action)
         self._done = terminated or truncated
+        
+        # Automatically render if render mode is enabled
+        if self._render_mode is not None:
+            self._env.render()
         
         return self._obs(
             obs,
