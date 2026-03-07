@@ -231,7 +231,7 @@ def main():
     # Handle checkpoint loading for transfer learning / fine-tuning
     # Copy checkpoint to new logdir so DreamerV3 can load it
     if args.from_checkpoint:
-        import shutil
+        #import shutil
         src_checkpoint = pathlib.Path(os.path.expanduser(args.from_checkpoint))
         
         # Determine the source checkpoint directory structure

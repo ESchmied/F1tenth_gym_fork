@@ -134,23 +134,23 @@ python3 train_dreamerv3.py \
     --envs 1 \
     --steps 10_000_000
 
-#Train in real car sim with collision and reset through backup MPC
+#Train in real car sim with collision and reset through backup MPC couldn't make it work 
 python3 train_dreamerv3.py --real \
     --max_speed 3.0 \
     --step_frequency 100.0 \
-    --collision_threshold 0.3 \
+    --collision_threshold 0.1 \
     --logdir /logdir \
     --steps 10_000_000
-    --train_ratio 12.0
+    
     
 #Train with BackupMPC
 python3 train_dreamerv3.py --real \
     --max_speed 3.0 \
     --step_frequency 100.0 \
-    --collision_threshold 0.3 \
     --logdir /logdir \
     --steps 10_000_000
     --train_ratio 12.0
+    
 
 # Checkpoint saved to: ~/logdir/f1tenth/sim_TIMESTAMP/ckpt/
 ```

@@ -60,7 +60,7 @@ class F1TenthReal(embodied.Env):
         max_speed: float = 3.0,
         max_steering_angle: float = 0.4189,
         step_frequency: float = 20.0,
-        collision_threshold: float = 0.3,
+        collision_threshold: float = 0.2,
         collision_penalty: float = -10.0,
         scan_topic: str = '/scan',
         odom_topic: str = '/ego_racecar/odom', # für sim: /ego_racecar/odom vielleicht ohne "/" davor 
@@ -73,7 +73,7 @@ class F1TenthReal(embodied.Env):
         collision_flag: bool = False,
         reset_timeout: float = 30.0,
         velocity_reward_scale: float = 1.0,
-        dist_to_wall_start_neg_rew: float = 0.5,
+        dist_to_wall_start_neg_rew: float = 0.2,
         **kwargs
     ):
         """
@@ -536,7 +536,7 @@ class F1TenthReal(embodied.Env):
         # Update episode tracking
         self._episode_steps += 1
         self._total_steps += 1
-        # TODO: falls collision true log total_steps to csv
+        # TODO: if collision true log total_steps to csv
 
         # Determine if episode is done
         done = collision  # End episode on collision
