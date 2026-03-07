@@ -23,6 +23,8 @@ import threading
 import queue
 from typing import Optional, Dict, Any
 import numpy as np
+import csv
+
 
 import elements
 import embodied
@@ -55,21 +57,23 @@ class F1TenthReal(embodied.Env):
         self,
         scan_beams: int = 32,
         scan_original_size: int = 1080,
-        max_speed: float = 5.0,
+        max_speed: float = 3.0,
         max_steering_angle: float = 0.4189,
         step_frequency: float = 20.0,
         collision_threshold: float = 0.3,
         collision_penalty: float = -10.0,
         scan_topic: str = '/scan',
-        odom_topic: str = '/odom',
-        drive_topic: str = '/drive',
+        odom_topic: str = '/ego_racecar/odom', # für sim: /ego_racecar/odom vielleicht ohne "/" davor 
+        drive_topic: str = '/control',  #drive
+        collision_flag_topic: str = '/collision_flag',
         obs_features: Optional[list] = None,
         use_sliding_window: bool = True,
         window_size: int = 3,
-        manual_reset: bool = True,
+        manual_reset: bool = False,  
+        collision_flag: bool = False,
         reset_timeout: float = 30.0,
         velocity_reward_scale: float = 1.0,
-        dist_to_wall_start_neg_rew: float = 0.3,
+        dist_to_wall_start_neg_rew: float = 0.5,
         **kwargs
     ):
         """
@@ -90,6 +94,8 @@ class F1TenthReal(embodied.Env):
             use_sliding_window: Whether to smooth observations
             window_size: Sliding window size for observation smoothing
             manual_reset: Whether reset requires manual intervention
+            mpc_reset: true if reset is handled by backup mpc 
+            TODO: add reset flag for MPC supervisor
             reset_timeout: Timeout waiting for manual reset (seconds)
             velocity_reward_scale: Scale factor for velocity reward
             dist_to_wall_start_neg_rew: Distance to wall (m) where negative reward starts (default: 0.4)
@@ -106,12 +112,20 @@ class F1TenthReal(embodied.Env):
         self._scan_topic = scan_topic
         self._odom_topic = odom_topic
         self._drive_topic = drive_topic
+        self._collision_flag_topic = collision_flag_topic
         self._use_sliding_window = use_sliding_window
         self._window_size = window_size
-        self._manual_reset = manual_reset
+        self._manual_reset = manual_reset 
+        self._collision_flag = collision_flag
         self._reset_timeout = reset_timeout
         self._velocity_reward_scale = velocity_reward_scale
         self._dist_to_wall_start_neg_rew = dist_to_wall_start_neg_rew
+
+
+        self._odom_file_name = 'odom_topic_log.csv'
+        f = open(self._odom_file_name, 'w')
+        f.truncate()
+        f.close()
         
         # Calculate scan subsampling indices
         self._scan_indices = np.linspace(
@@ -142,6 +156,8 @@ class F1TenthReal(embodied.Env):
         
         # Initialize ROS2
         self._init_ros2()
+        
+        
 
     def _init_ros2(self):
         """Initialize ROS2 node and subscriptions."""
@@ -153,6 +169,7 @@ class F1TenthReal(embodied.Env):
             from nav_msgs.msg import Odometry
             from ackermann_msgs.msg import AckermannDriveStamped
             from transforms3d.euler import quat2euler
+            from std_msgs.msg import Bool
         except ImportError as e:
             raise ImportError(
                 "ROS2 dependencies not found. Please install rclpy, sensor_msgs, "
@@ -166,6 +183,7 @@ class F1TenthReal(embodied.Env):
         self._Odometry = Odometry
         self._AckermannDriveStamped = AckermannDriveStamped
         self._quat2euler = quat2euler
+        
         
         # Initialize ROS2 if not already done
         if not rclpy.ok():
@@ -185,22 +203,31 @@ class F1TenthReal(embodied.Env):
         # Subscribers
         self._scan_sub = self._ros_node.create_subscription(
             LaserScan,
-            self._scan_topic,
+            '/scan',
             self._scan_callback,
             sensor_qos
         )
         
         self._odom_sub = self._ros_node.create_subscription(
             Odometry,
-            self._odom_topic,
+            '/ego_racecar/odom',
             self._odom_callback,
             10
         )
+
+        #TODO: add subscription for feedback topic
+        self._collision_flag_sub = self._ros_node.create_subscription(
+            Bool,
+            '/collision_flag',
+            self._collision_flag_callback,
+            10
+        )
+
         
         # Publisher
         self._drive_pub = self._ros_node.create_publisher(
             AckermannDriveStamped,
-            self._drive_topic,
+            '/control',
             10
         )
         
@@ -234,7 +261,8 @@ class F1TenthReal(embodied.Env):
         print("[F1TenthReal] ROS2 spinner thread started")
         while rclpy.ok() and self._ros_initialized:
             try:
-                rclpy.spin_once(self._ros_node, timeout_sec=0.1)
+                #rclpy.spin(self._ros_node)
+                rclpy.spin_once(self._ros_node, timeout_sec=0.0005) #timeout_sec=0.1
             except Exception as e:
                 print(f"[F1TenthReal] Spinner error: {e}")
                 break
@@ -295,6 +323,18 @@ class F1TenthReal(embodied.Env):
             }
             if self._current_scan is not None:
                 self._data_ready.set()
+        #TODO write current_odom in csv file 
+
+        with open(self._odom_file_name ,'a') as fod:
+            fieldnames = ['linear_vel_x', 'ang_vel_z', 'pose_x', 'pose_y', 'pose_theta']
+            writer = csv.DictWriter(fod, delimiter=',' , fieldnames=fieldnames)
+            #writer.writeheader()
+            writer.writerow(self._current_odom)
+
+    def _collision_flag_callback(self, msg):
+        #if(msg.data == True):
+            #print("Collision Flag== ", msg.data)
+        self._collision_flag = msg.data
 
     def _publish_drive(self, steering: float, speed: float):
         """Publish drive command to the car."""
@@ -308,6 +348,7 @@ class F1TenthReal(embodied.Env):
         msg.drive.steering_angle = float(steering)
         msg.drive.speed = float(speed)
         
+        #print("Publish control topic! MSG: steering = " , steering, "speed = ", speed)
         self._drive_pub.publish(msg)
         
         # Track current steering for observation
@@ -359,6 +400,9 @@ class F1TenthReal(embodied.Env):
             self._obs_history.append(obs)
             return obs
 
+    #TODO: check ob collisions flag vom MPC feedback topic gesetzt, falls ja check collision == True
+    
+    #brauch ich nicht da self._collision_flag bereits bool 
     def _check_collision(self, scan: np.ndarray) -> bool:
         """Check if any scan reading indicates collision."""
         # Filter out invalid readings (0.0 or very close to 0)
@@ -370,7 +414,8 @@ class F1TenthReal(embodied.Env):
 
     def _compute_reward(self, obs: Dict[str, Any], collision: bool) -> float:
         """Compute reward based on velocity, collision status, and distance to walls."""
-        if collision:
+        if collision: 
+            print("collision penalty: ", self._collision_penalty)                            
             return self._collision_penalty
         
         # Velocity-based reward (similar to simulation)
@@ -378,6 +423,9 @@ class F1TenthReal(embodied.Env):
             velocity_reward = obs['linear_vel_x'] * self._velocity_reward_scale
         else:
             velocity_reward = 0.0
+
+        #steering penalty
+        #steering_penalty = obs[]
         
         # Distance-based penalty: negative reward when close to walls
         # Find minimum distance to obstacles from scan
@@ -388,12 +436,14 @@ class F1TenthReal(embodied.Env):
             if len(valid_readings) > 0:
                 min_distance = np.min(valid_readings)
                 
+                # momentan nicht verwendet da collision threshold == dist_to_wall_start_neg_rew
                 # If distance is less than threshold, apply linear penalty
                 if min_distance < self._dist_to_wall_start_neg_rew:
+                    print("to close to wall")
                     # Calculate penalty: 0 at threshold, -100 at collision_threshold
                     # Linear interpolation
                     distance_into_penalty_zone = self._dist_to_wall_start_neg_rew - min_distance
-                    penalty_zone_width = self._dist_to_wall_start_neg_rew - self._collision_threshold
+                    penalty_zone_width = self._dist_to_wall_start_neg_rew - self._collision_threshold # aktuell immer 0
                     
                     if penalty_zone_width > 0:
                         # Normalize distance into penalty zone [0, 1]
@@ -402,8 +452,9 @@ class F1TenthReal(embodied.Env):
                         distance_penalty = self._collision_penalty * normalized_distance
                         velocity_reward *= distance_penalty
         
-        print("total reward: ", velocity_reward)
-        return velocity_reward
+        total_reward = velocity_reward
+        print("total reward: ", total_reward)
+        return total_reward
 
     @functools.cached_property
     def obs_space(self):
@@ -476,7 +527,8 @@ class F1TenthReal(embodied.Env):
         obs = self._get_observation()
         
         # Check collision
-        collision = self._check_collision(obs['scan'])
+        #collision = self._check_collision(obs['scan'])
+        collision = self._collision_flag
         
         # Compute reward
         reward = self._compute_reward(obs, collision)
@@ -484,7 +536,8 @@ class F1TenthReal(embodied.Env):
         # Update episode tracking
         self._episode_steps += 1
         self._total_steps += 1
-        
+        # TODO: falls collision true log total_steps to csv
+
         # Determine if episode is done
         done = collision  # End episode on collision
         self._done = done
@@ -493,6 +546,7 @@ class F1TenthReal(embodied.Env):
             self._stop_car()
             print(f"[F1TenthReal] Episode ended after {self._episode_steps} steps "
                   f"(collision={collision})")
+            #self._backup_mpc_flag = True
         
         # Build observation dict
         return self._build_obs(obs, reward, is_first=False, is_last=done, is_terminal=collision)
@@ -530,6 +584,14 @@ class F1TenthReal(embodied.Env):
             else:
                 print(f"[F1TenthReal] Reset timeout after {self._reset_timeout}s, continuing anyway")
         
+        """ reset is needed, waiting for backup mpc to finish reseting and then resume """
+        if self._collision_flag:
+            #print("[F1TenthReal] Backup MPC still running")
+            #idk if this works
+            time.sleep(0.05)
+            return self._reset()
+
+
         # Wait for fresh sensor data
         self._data_ready.clear()
         if not self._data_ready.wait(timeout=2.0):

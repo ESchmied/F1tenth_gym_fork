@@ -48,6 +48,8 @@ from functools import partial as bind
 
 import numpy as np
 
+import shutil
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -65,7 +67,7 @@ def parse_args():
     # Real car arguments
     parser.add_argument("--real", action="store_true", default=False, 
                         help="Train on real car instead of simulation.")
-    parser.add_argument("--max_speed", type=float, default=5.0, 
+    parser.add_argument("--max_speed", type=float, default=3.0, 
                         help="Maximum speed for real car (m/s). Use conservative values for safety.")
     parser.add_argument("--step_frequency", type=float, default=20.0, 
                         help="Step frequency for real car (Hz).")
@@ -73,9 +75,9 @@ def parse_args():
                         help="Minimum distance to consider collision (m).")
     parser.add_argument("--scan_topic", type=str, default="/scan", 
                         help="ROS2 topic for LiDAR scan.")
-    parser.add_argument("--odom_topic", type=str, default="/odom", 
+    parser.add_argument("--odom_topic", type=str, default="ego_racecar/odom",  #/odom
                         help="ROS2 topic for odometry.")
-    parser.add_argument("--drive_topic", type=str, default="/drive", 
+    parser.add_argument("--drive_topic", type=str, default="/control",  #/drive
                         help="ROS2 topic for drive commands.")
     parser.add_argument("--automatic_reset", action="store_true", default=False,
                         help="Use automatic reset with external tracking (requires pose_topic).")
@@ -205,7 +207,7 @@ def main():
         'run.eval_envs': args.eval_envs,
     }
     config = config.update(run_config)
-    
+     
     # Update JAX platform
     config = config.update({'jax.platform': args.jax_platform})
     
@@ -224,6 +226,7 @@ def main():
     print(f'[INFO] Logdir: {logdir_path}')
     logdir_path.mkdir()
     config.save(logdir_path / 'config.yaml')
+
     
     # Handle checkpoint loading for transfer learning / fine-tuning
     # Copy checkpoint to new logdir so DreamerV3 can load it
@@ -335,7 +338,8 @@ def main():
         train_args,
     )
     
-    print("[INFO] Training complete!")
+    print("[INFO] Training complete! Saving odom data in logdir!")
+    shutil.copy('odom_topic_log.csv' , logdir_path)
 
 
 def make_env(config, env_args, index=0):

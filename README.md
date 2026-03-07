@@ -126,32 +126,80 @@ python3 train_dreamerv3.py \
     --envs 50 \
     --steps 5_000_000
 
+#trainig befehle für BA eval
+#Train in sim with one map and env for comparability with MPC Supervisor. 
+python3 train_dreamerv3.py \
+    --task Austin \
+    --model_size size12m \
+    --envs 1 \
+    --steps 10_000_000
+
+#Train in real car sim with collision and reset through backup MPC
+python3 train_dreamerv3.py --real \
+    --max_speed 3.0 \
+    --step_frequency 100.0 \
+    --collision_threshold 0.3 \
+    --logdir /logdir \
+    --steps 10_000_000
+    --train_ratio 12.0
+    
+#Train with BackupMPC
+python3 train_dreamerv3.py --real \
+    --max_speed 3.0 \
+    --step_frequency 100.0 \
+    --collision_threshold 0.3 \
+    --logdir /logdir \
+    --steps 10_000_000
+    --train_ratio 12.0
+
 # Checkpoint saved to: ~/logdir/f1tenth/sim_TIMESTAMP/ckpt/
 ```
 
 #### Step 2: Transfer to Real Car (Finetune on Hardware)
+#für mich relevant
 
 ```bash
+
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │  REQUIRED FLAGS: --net=host --ipc=host                                  │
 # │  WARNING: Car must have ROS_LOCALHOST_ONLY=0                            │
 # └─────────────────────────────────────────────────────────────────────────┘
+#   
+#ROS Topics dont get published outside of the container: 
+#see https://github.com/eProsima/Fast-DDS/issues/5396
+#The problem is due to the SHM transport. When you launch a Docker with --net=host and --ipc=host configuration, the publisher and subscriber detect
+#that they are on the same host and try to use SHM. This is due to how the calculation of SHM usage was done until now. In addition, SHM uses the /dev
+#shm directory, which in this case is being attempted to be shared by users who have different permissions: root in the case of Docker and $USER` in
+#the case of the host. This causes communication to fail.
+#-To fix this you have several quick solutions:
+#-Have the same user on Docker as on the host.
+#-Launch the ROS 2 application as root (equivalent to the above but without changing the Docker configuration).
+#-Use UDP instead of SHM. This is as simple as running the following before launching the ROS 2 application in the Docker.
 
+export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+
+#-Do not set --ipc=host --net=host when running the Docker container.
+```
+
+```bash
 docker run --rm -it \
     --net=host \
     --ipc=host \
     --gpus all \
     -v ~/logdir:/logdir \
-    -v ~/logdir/f1tenth/sim_TIMESTAMP:/checkpoints \
-    f1tenth-dreamer:latest \
-    python3 train_dreamerv3.py --real \
-        --from_checkpoint /logdir/yourcheckpoint \
-        --max_speed 3.0 \
-        --step_frequency 20.0 \
-        --collision_threshold 0.1 \
-        --logdir /logdir \
-        --steps 10_000 \
-        --train_ratio 12.0
+    f1tenth-dreamer:latest bash
+```
+``` bash
+#sim_ ... an aktuelle version anpassen bei bedarf
+
+python3 train_dreamerv3.py --real \
+    --from_checkpoint /logdir/docker/sim_20260211T092905/ckpt/20260211T102928F743829 \
+    --max_speed 3.0 \
+    --step_frequency 100.0 \
+    --collision_threshold 0.3 \
+    --logdir /logdir \
+    --steps 200_000 \
+    --train_ratio 12.0
 ```
 
 #### Step 3: Monitor Training

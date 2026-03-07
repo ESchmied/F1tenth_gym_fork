@@ -30,7 +30,7 @@
 #
 # =============================================================================
 
-# Use ROS2 Humble with CUDA support for JAX training
+# Use ROS2 humble with CUDA support for JAX training
 ARG BASE_IMAGE=ros:humble-ros-base
 FROM ${BASE_IMAGE}
 
