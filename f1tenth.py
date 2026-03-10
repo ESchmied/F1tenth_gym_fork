@@ -41,7 +41,7 @@ class F1Tenth(embodied.Env):
 
     def __init__(
         self,
-        task='Spielberg',
+        task='Austin',
         num_agents=1,
         obs_type='features',
         obs_features=None,

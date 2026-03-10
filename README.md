@@ -85,7 +85,9 @@ python3 train_dreamerv3.py --model_size size12m --envs 100 --resets_per_map 50
 python3 evaluate_dreamerv3.py /root/logdir/f1tenth/TIMESTAMP/ckpt/CHECKPOINT/ --render
 
 # Evaluate on specific track
-python3 evaluate_dreamerv3.py /root/logdir/f1tenth/TIMESTAMP/ckpt/CHECKPOINT/ --render --task Monza
+python3 evaluate_dreamerv3.py /root/logdir/f1tenth/TIMESTAMP/ckpt/CHECKPOINT/ --render --task Austin
+
+python3 evaluate_dreamerv3.py /root/logdir/f1tenth/sim_20260309T135349/ckpt/20260309T153913F170976/ --render --task Austin
 ```
 
 ---
@@ -132,7 +134,7 @@ python3 train_dreamerv3.py \
     --task Austin \
     --model_size size12m \
     --envs 1 \
-    --steps 10_000_000
+    --steps 3_000_000
 
 #Train in real car sim with collision and reset through backup MPC couldn't make it work 
 python3 train_dreamerv3.py --real \
@@ -140,7 +142,7 @@ python3 train_dreamerv3.py --real \
     --step_frequency 100.0 \
     --collision_threshold 0.1 \
     --logdir /logdir \
-    --steps 10_000_000
+    --steps 3_000_000
     
     
 #Train with BackupMPC
@@ -148,7 +150,7 @@ python3 train_dreamerv3.py --real \
     --max_speed 3.0 \
     --step_frequency 100.0 \
     --logdir /logdir \
-    --steps 10_000_000
+    --steps 3_000_000 \
     --train_ratio 12.0
     
 

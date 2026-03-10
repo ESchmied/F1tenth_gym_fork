@@ -75,7 +75,7 @@ def parse_args():
                         help="Minimum distance to consider collision (m).")
     parser.add_argument("--scan_topic", type=str, default="/scan", 
                         help="ROS2 topic for LiDAR scan.")
-    parser.add_argument("--odom_topic", type=str, default="ego_racecar/odom",  #/odom
+    parser.add_argument("--odom_topic", type=str, default="/ego_racecar/odom",  #/odom
                         help="ROS2 topic for odometry.")
     parser.add_argument("--drive_topic", type=str, default="/control",  #/drive
                         help="ROS2 topic for drive commands.")

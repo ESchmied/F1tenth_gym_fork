@@ -183,6 +183,7 @@ class F1TenthReal(embodied.Env):
         self._Odometry = Odometry
         self._AckermannDriveStamped = AckermannDriveStamped
         self._quat2euler = quat2euler
+        self._bool = Bool 
         
         
         # Initialize ROS2 if not already done
@@ -261,8 +262,8 @@ class F1TenthReal(embodied.Env):
         print("[F1TenthReal] ROS2 spinner thread started")
         while rclpy.ok() and self._ros_initialized:
             try:
-                #rclpy.spin(self._ros_node)
-                rclpy.spin_once(self._ros_node, timeout_sec=0.0005) #timeout_sec=0.1
+                
+                rclpy.spin_once(self._ros_node, timeout_sec=0.005) #timeout_sec=0.1
             except Exception as e:
                 print(f"[F1TenthReal] Spinner error: {e}")
                 break
@@ -273,7 +274,7 @@ class F1TenthReal(embodied.Env):
         # First callback - log that we got data
         if self._current_scan is None:
             print(f"[F1TenthReal] First scan received! ({len(msg.ranges)} beams)")
-        
+        #print(f"[F1TENTH] Scan received!")
         scan_array = np.array(msg.ranges, dtype=np.float32)
         
         # Handle inf and nan values
@@ -302,10 +303,11 @@ class F1TenthReal(embodied.Env):
         # First callback - log that we got data
         if self._current_odom is None:
             print(f"[F1TenthReal] First odom received!")
-        
+        #print(f"[F1TENTH] Odom received!")
         # Extract velocities
         linear_vel_x = abs(msg.twist.twist.linear.x)
         ang_vel_z = msg.twist.twist.angular.z
+        #print(f"ang_vel_z:{ang_vel_z}")
         
         # Extract pose
         pose_x = msg.pose.pose.position.x
@@ -321,6 +323,7 @@ class F1TenthReal(embodied.Env):
                 'pose_y': np.float32(pose_y),
                 'pose_theta': np.float32(pose_theta),
             }
+
             if self._current_scan is not None:
                 self._data_ready.set()
         #TODO write current_odom in csv file 
