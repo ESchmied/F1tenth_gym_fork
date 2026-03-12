@@ -87,8 +87,13 @@ python3 evaluate_dreamerv3.py /root/logdir/f1tenth/TIMESTAMP/ckpt/CHECKPOINT/ --
 # Evaluate on specific track
 python3 evaluate_dreamerv3.py /root/logdir/f1tenth/TIMESTAMP/ckpt/CHECKPOINT/ --render --task Austin
 
-python3 evaluate_dreamerv3.py /root/logdir/f1tenth/sim_20260309T135349/ckpt/20260309T153913F170976/ --render --task Austin
+python3 evaluate_dreamerv3.py /root/logdir/f1tenth/sim_20260311T141821/ckpt/20260311T144850F259730/ --render --task Austin
+
+python3 evaluate_dreamerv3.py /logdir/real_20260310T120624/ckpt/20260310T225153F516088/ --render --task Austin
 ```
+
+logdir/docker/f1tenth/sim_20260311T141821/ckpt/20260311T144850F259730
+[text](../logdir/docker/f1tenth/sim_20260311T152533/ckpt/20260311T171056F733495)
 
 ---
 
@@ -150,7 +155,7 @@ python3 train_dreamerv3.py --real \
     --max_speed 3.0 \
     --step_frequency 100.0 \
     --logdir /logdir \
-    --steps 3_000_000 \
+    --steps 5_000_000 \
     --train_ratio 12.0
     
 
@@ -195,7 +200,7 @@ docker run --rm -it \
 #sim_ ... an aktuelle version anpassen bei bedarf
 
 python3 train_dreamerv3.py --real \
-    --from_checkpoint /logdir/docker/sim_20260211T092905/ckpt/20260211T102928F743829 \
+    --from_checkpoint /logdir/real_20260310T120624/ckpt/20260310T225153F516088 \
     --max_speed 3.0 \
     --step_frequency 100.0 \
     --collision_threshold 0.3 \

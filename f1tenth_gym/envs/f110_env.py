@@ -104,9 +104,10 @@ class F110Env(gym.Env):
         self.model = DynamicModel.from_string(self.config["model"])
         self.observation_config = self.config["observation_config"]
         self.action_type = CarAction(self.config["control_input"], params=self.params)
-        self.dist_to_wall_start_neg_rew = self.config.get("dist_to_wall_start_neg_rew", 0.6)
-        self.velocity_reward_scale = self.config.get("velocity_reward_scale", 1.0)
+        self.velocity_reward_scale = self.config.get("velocity_reward_scale", 2.0)
 
+        self.collision_penalty = -10.0
+        self.dist_to_wall_start_neg_rew = 0.3
         # radius to consider done
         self.start_thresh = 0.5  # 10cm
 
@@ -234,8 +235,8 @@ class F110Env(gym.Env):
             "control_input": ["speed", "steering_angle"],
             "observation_config": {"type": None},
             "reset_config": {"type": None},
-            "dist_to_wall_start_neg_rew": 0.6,  # Distance from track edge (m) where negative reward starts
-            "velocity_reward_scale": 1.0,  # Scale factor for velocity reward
+            "velocity_reward_scale": 2.0,  # Scale factor for velocity reward
+            #"dist_to_wall_start_neg_rew": 0.6,  # Distance from track edge (m) where negative reward starts
         }
 
     def configure(self, config: dict) -> None:
@@ -340,7 +341,7 @@ class F110Env(gym.Env):
                     min_distance = min(min_distance, distance)
                     break
         
-        # If no wall found (shouldn't happen), return no penalty
+        """ # If no wall found (shouldn't happen), return no penalty
         if min_distance == float('inf'):
             return 0.0
         
@@ -357,9 +358,26 @@ class F110Env(gym.Env):
         distance_into_penalty_zone = min(1.0, max(0.0, distance_into_penalty_zone))
         
         # Linear penalty: 0 at threshold, -100 at wall
-        penalty = -10.0 * distance_into_penalty_zone
+        penalty = -10.0 * distance_into_penalty_zone """
+
+        # momentan nicht verwendet da collision threshold == dist_to_wall_start_neg_rew
+        # If distance is less than threshold, apply linear penalty
+        if min_distance < self.dist_to_wall_start_neg_rew:
+            #print("to close to wall")
+            # Calculate penalty: 0 at threshold, -100 at collision_threshold
+            # Linear interpolation
+            distance_into_penalty_zone = self.dist_to_wall_start_neg_rew - min_distance
+            penalty_zone_width = self.dist_to_wall_start_neg_rew
+            
+            if penalty_zone_width > 0:
+                # Normalize distance into penalty zone [0, 1]
+                normalized_distance = min(1.0, distance_into_penalty_zone / penalty_zone_width)
+                # Linear penalty from 0 to collision_penalty
+                distance_penalty = self.collision_penalty * normalized_distance
+        else:
+            return 0.0
         
-        return penalty
+        return distance_penalty
 
     def _check_done(self):
         """
@@ -440,7 +458,7 @@ class F110Env(gym.Env):
 
         # times
         speedx = self.sim.agents[self.ego_idx].state[3] / 10.
-        if speedx > 0.5:
+        if speedx > 0.0:
             reward = speedx * self.velocity_reward_scale
         else:
             reward = 0.0
@@ -448,8 +466,8 @@ class F110Env(gym.Env):
         # if collision, big negative reward
         for i in range(self.num_agents):
             if self.sim.collisions[i]:
-                reward = -1.0
-        
+                reward = self.collision_penalty
+
         # Add distance-based penalty for being near track edges
         # Only apply if not already in collision
         distance_penalty = 0.0

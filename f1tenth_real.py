@@ -59,7 +59,7 @@ class F1TenthReal(embodied.Env):
         scan_original_size: int = 1080,
         max_speed: float = 3.0,
         max_steering_angle: float = 0.4189,
-        step_frequency: float = 20.0,
+        step_frequency: float = 100.0,
         collision_threshold: float = 0.2,
         collision_penalty: float = -10.0,
         scan_topic: str = '/scan',
@@ -73,7 +73,7 @@ class F1TenthReal(embodied.Env):
         collision_flag: bool = False,
         reset_timeout: float = 30.0,
         velocity_reward_scale: float = 1.0,
-        dist_to_wall_start_neg_rew: float = 0.2,
+        dist_to_wall_start_neg_rew: float = 0.3,
         **kwargs
     ):
         """
@@ -263,7 +263,7 @@ class F1TenthReal(embodied.Env):
         while rclpy.ok() and self._ros_initialized:
             try:
                 
-                rclpy.spin_once(self._ros_node, timeout_sec=0.005) #timeout_sec=0.1
+                rclpy.spin_once(self._ros_node, timeout_sec=0.0005) #timeout_sec=0.1
             except Exception as e:
                 print(f"[F1TenthReal] Spinner error: {e}")
                 break
@@ -422,7 +422,7 @@ class F1TenthReal(embodied.Env):
             return self._collision_penalty
         
         # Velocity-based reward (similar to simulation)
-        if obs['linear_vel_x'] > 0.5: # only reward if velocity is greater than 0.5 m/s, because otherwise it abuses odometry error
+        if obs['linear_vel_x'] > 0.0: # only reward if velocity is greater than 0.5 m/s, because otherwise it abuses odometry error
             velocity_reward = obs['linear_vel_x'] * self._velocity_reward_scale
         else:
             velocity_reward = 0.0
@@ -589,10 +589,25 @@ class F1TenthReal(embodied.Env):
         
         """ reset is needed, waiting for backup mpc to finish reseting and then resume """
         if self._collision_flag:
+            start_time = time.time()
+            while time.time() - start_time < self._reset_timeout:
+                # Non-blocking input check (Unix-specific)
+                try:
+                    if self._collision_flag == False:
+                        print("collision flag reset to false!")
+                        break
+                except:
+                    # Fallback for non-Unix systems
+                    time.sleep(0.1)
+                    # Could add a different input mechanism here
+            else:
+                print(f"[F1TenthReal] Reset timeout after {self._reset_timeout}s, continuing anyway")
+        
+        """   if self._collision_flag:
             #print("[F1TenthReal] Backup MPC still running")
             #idk if this works
             time.sleep(0.05)
-            return self._reset()
+            return self._reset() """
 
 
         # Wait for fresh sensor data
