@@ -72,7 +72,7 @@ class F1TenthReal(embodied.Env):
         manual_reset: bool = False,  
         collision_flag: bool = False,
         reset_timeout: float = 30.0,
-        velocity_reward_scale: float = 1.0,
+        velocity_reward_scale: float = 2.0,
         dist_to_wall_start_neg_rew: float = 0.3,
         **kwargs
     ):
