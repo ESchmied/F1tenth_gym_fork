@@ -9,10 +9,11 @@ This document provides a quick reference for setting up and using the F1TENTH re
 ```bash
 # All training automatically uses transferable observations (sim-to-real compatible)
 python3 train_dreamerv3.py \
-    --task None \
+    --task Austin \
     --model_size size12m \
-    --envs 50 \
-    --steps 5_000_000
+    --envs 100 \
+    --max_speed 10.0 \
+    --steps 1_000_000
 ```
 
 **Output:** `~/logdir/f1tenth/sim_TIMESTAMP/ckpt/`

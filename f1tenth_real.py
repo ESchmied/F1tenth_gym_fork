@@ -60,8 +60,8 @@ class F1TenthReal(embodied.Env):
         max_speed: float = 3.0,
         max_steering_angle: float = 0.4189,
         step_frequency: float = 100.0,
-        collision_threshold: float = 0.2,
-        collision_penalty: float = -10.0,
+        collision_threshold: float = 0.3,
+        collision_penalty: float = -6.0,
         scan_topic: str = '/scan',
         odom_topic: str = '/ego_racecar/odom', # für sim: /ego_racecar/odom vielleicht ohne "/" davor 
         drive_topic: str = '/control',  #drive
@@ -328,11 +328,11 @@ class F1TenthReal(embodied.Env):
                 self._data_ready.set()
         #TODO write current_odom in csv file 
 
-        with open(self._odom_file_name ,'a') as fod:
+    """    with open(self._odom_file_name ,'a') as fod:
             fieldnames = ['linear_vel_x', 'ang_vel_z', 'pose_x', 'pose_y', 'pose_theta']
             writer = csv.DictWriter(fod, delimiter=',' , fieldnames=fieldnames)
             #writer.writeheader()
-            writer.writerow(self._current_odom)
+            writer.writerow(self._current_odom) """
 
     def _collision_flag_callback(self, msg):
         #if(msg.data == True):
@@ -415,17 +415,30 @@ class F1TenthReal(embodied.Env):
             return False  # No valid data, assume no collision
         return np.any(valid_readings < self._collision_threshold)
 
-    def _compute_reward(self, obs: Dict[str, Any], collision: bool) -> float:
+    def _compute_reward(self, obs: Dict[str, Any], collision: bool, speed) -> float:
         """Compute reward based on velocity, collision status, and distance to walls."""
         if collision: 
             print("collision penalty: ", self._collision_penalty)                            
             return self._collision_penalty
         
         # Velocity-based reward (similar to simulation)
-        if obs['linear_vel_x'] > 0.0: # only reward if velocity is greater than 0.5 m/s, because otherwise it abuses odometry error
-            velocity_reward = obs['linear_vel_x'] * self._velocity_reward_scale
+        #print("obs['linear_vel_x]:" + obs['linear_vel_x'])
+        """ if obs['linear_vel_x'] > 0: # only reward if velocity is greater than 0.5 m/s, because otherwise it abuses odometry error
+            velocity_reward = obs['linear_vel_x'] * obs['linear_vel_x']
+        elif obs['linear_vel_x']< 0:
+            velocity_reward = obs['linear_vel_x'] * 0.5
         else:
-            velocity_reward = 0.0
+            #add penalty for driving backwards
+            #velocity_reward = obs['linear_vel_x'] *self._velocity_reward_scale
+            velocity_reward = 0.0 """
+        if speed > 0.5: # only reward if velocity is greater than 0.5 m/s, because otherwise it abuses odometry error
+            velocity_reward = obs['linear_vel_x'] * self._velocity_reward_scale
+        elif speed < 0:
+            velocity_reward = speed * 0.5
+        else:
+            #add penalty for driving backwards
+            #velocity_reward = obs['linear_vel_x'] *self._velocity_reward_scale
+            velocity_reward = 0.0 
 
         #steering penalty
         #steering_penalty = obs[]
@@ -453,7 +466,7 @@ class F1TenthReal(embodied.Env):
                         normalized_distance = min(1.0, distance_into_penalty_zone / penalty_zone_width)
                         # Linear penalty from 0 to collision_penalty
                         distance_penalty = self._collision_penalty * normalized_distance
-                        velocity_reward *= distance_penalty
+                        velocity_reward += distance_penalty
         
         total_reward = velocity_reward
         print("total reward: ", total_reward)
@@ -534,7 +547,7 @@ class F1TenthReal(embodied.Env):
         collision = self._collision_flag
         
         # Compute reward
-        reward = self._compute_reward(obs, collision)
+        reward = self._compute_reward(obs, collision, speed)
         
         # Update episode tracking
         self._episode_steps += 1
@@ -551,6 +564,12 @@ class F1TenthReal(embodied.Env):
                   f"(collision={collision})")
             #self._backup_mpc_flag = True
         
+        with open(self._odom_file_name ,'a') as fod:
+            fieldnames = ['linear_vel_x', 'ang_vel_z', 'pose_x', 'pose_y', 'pose_theta']
+            writer = csv.DictWriter(fod, delimiter=',' , fieldnames=fieldnames)
+            #writer.writeheader()
+            writer.writerow(self._current_odom)
+
         # Build observation dict
         return self._build_obs(obs, reward, is_first=False, is_last=done, is_terminal=collision)
 
@@ -574,7 +593,7 @@ class F1TenthReal(embodied.Env):
             import select
             
             start_time = time.time()
-            while time.time() - start_time < self._reset_timeout:
+            while time.time() - start_time < 2*self._reset_timeout:
                 # Non-blocking input check (Unix-specific)
                 try:
                     if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:

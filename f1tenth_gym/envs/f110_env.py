@@ -107,7 +107,7 @@ class F110Env(gym.Env):
         self.velocity_reward_scale = self.config.get("velocity_reward_scale", 2.0)
 
         self.collision_penalty = -10.0
-        self.dist_to_wall_start_neg_rew = 0.3
+        self.dist_to_wall_start_neg_rew = 0.0
         # radius to consider done
         self.start_thresh = 0.5  # 10cm
 
@@ -222,8 +222,8 @@ class F110Env(gym.Env):
                 "sv_max": 3.2,
                 "v_switch": 7.319,
                 "a_max": 9.51,
-                "v_min": -5.0,
-                "v_max": 20.0,
+                "v_min": 5.0, #-5
+                "v_max": 20.0, #was 20
                 "width": 0.31,
                 "length": 0.58,
             },
@@ -423,7 +423,7 @@ class F110Env(gym.Env):
         ego_off_track = self._is_off_track(self.poses_x[self.ego_idx], self.poses_y[self.ego_idx])
         
         # End episode when all agents complete laps OR ego car is off track
-        done = np.all(self.toggle_list >= 4) or ego_off_track
+        done = np.all(self.toggle_list >= 4) or ego_off_track or (self.collisions[self.ego_idx])
 
         return bool(done), self.toggle_list >= 4
 

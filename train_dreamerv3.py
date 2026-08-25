@@ -67,11 +67,11 @@ def parse_args():
     # Real car arguments
     parser.add_argument("--real", action="store_true", default=False, 
                         help="Train on real car instead of simulation.")
-    parser.add_argument("--max_speed", type=float, default=3.0, 
+    parser.add_argument("--max_speed", type=float, default=10.0, 
                         help="Maximum speed for real car (m/s). Use conservative values for safety.")
-    parser.add_argument("--step_frequency", type=float, default=20.0, 
+    parser.add_argument("--step_frequency", type=float, default=3.0, 
                         help="Step frequency for real car (Hz).")
-    parser.add_argument("--collision_threshold", type=float, default=0.3, 
+    parser.add_argument("--collision_threshold", type=float, default=0.1, 
                         help="Minimum distance to consider collision (m).")
     parser.add_argument("--scan_topic", type=str, default="/scan", 
                         help="ROS2 topic for LiDAR scan.")
@@ -212,7 +212,7 @@ def main():
     config = config.update({'jax.platform': args.jax_platform})
     
     # Configure logger outputs
-    logger_outputs = ['jsonl', 'scope']
+    logger_outputs = ['jsonl'] #,scope]
     if args.tensorboard and not args.no_tensorboard:
         logger_outputs.append('tensorboard')
     config = config.update({'logger.outputs': logger_outputs})
@@ -329,6 +329,8 @@ def main():
     
     # Run training using embodied's train function
     print("[INFO] Starting training...")
+    #print("make logger: " + make_logger +"\n")
+    #print("config: " + config + "\n")
     embodied.run.train(
         bind(make_agent, config),
         bind(make_replay, config, 'replay'),
@@ -603,7 +605,7 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         print(f"\n{'='*60}")
-        print("ERROR: Training failed with exception:")
+        print("ERROR: Training failed with exception: " + str(e))
         print(f"{'='*60}")
         traceback.print_exc()
         print(f"{'='*60}\n")

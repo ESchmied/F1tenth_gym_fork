@@ -13,7 +13,9 @@ Usage:
 
     # Real car evaluation:
     python evaluate_dreamerv3.py ~/logdir/f1tenth/run --real
-    python evaluate_dreamerv3.py ~/logdir/f1tenth/run --real --max_speed 3.0
+    python evaluate_dreamerv3.py ~/logdir/f1tenth/run --real --max_speed 3.0 
+    python3 evaluate_dreamerv3.py /logdir/real_20260310T120624/ckpt/20260310T225153F516088 --real --max_speed 3.0 
+/home/emelies/logdir/real_20260310T120624/ckpt/20260310T225153F516088    
 
     # Save plots to a directory:
     python evaluate_dreamerv3.py ~/logdir/f1tenth/run --plot_dir ./eval_plots

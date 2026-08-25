@@ -136,7 +136,7 @@ pip install tensorflow-cpu
 python train_dreamerv3.py --task None --steps 5_000_000
 
 # Or train on a specific track
-python train_dreamerv3.py --task Spielberg --steps 5_000_000
+python train_dreamerv3.py --task Austin --steps 5_000_000 --render
 ```
 
 This creates a checkpoint at `~/logdir/f1tenth/sim_<timestamp>/`.
@@ -148,11 +148,30 @@ This creates a checkpoint at `~/logdir/f1tenth/sim_<timestamp>/`.
 # Make sure ROS2 is running and the car's sensors are publishing
 
 # Start training on real car, loading simulation weights
-python train_dreamerv3.py --real \
-    --from_checkpoint ~/logdir/f1tenth/sim_<timestamp>/ckpt \
+python3 train_dreamerv3.py --real \
+    --from_checkpoint ~/logdir/docker/f1tenth/sim_20260324T085419/ckpt/20260324T103948F511868 \
     --max_speed 3.0 \
-    --steps 100_000
+    --step_frequency 100.0 \
+    --collision_threshold 0.3 \
+    --steps 100_000 \
+    --train_ratio 12.0
+
+
+
+python3 train_dreamerv3.py --real \
+    --from_checkpoint /logdir/real_20260310T120624/ckpt/20260310T225153F516088 \
+    --max_speed 3.0 \
+    --step_frequency 100.0 \
+    --collision_threshold 0.3 \
+    --logdir /logdir \
+    --steps 200_000 \
+    --train_ratio 12.0
 ```
+
+[text](../../logdir/docker/f1tenth/sim_20260324T085419/ckpt/20260324T103948F511868)
+[text](../../logdir/docker/f1tenth/sim_20260324T085419)
+[text](../../logdir/real_20260310T120624)
+
 
 #### Step 3: Monitor Training
 

@@ -84,6 +84,7 @@ RUN pip3 install \
 # Keep the source directory for editable install to work
 RUN git clone https://github.com/danijar/dreamerv3.git /opt/dreamerv3 && \
     cd /opt/dreamerv3 && \
+    sed -i 's/^  profiler: bool = True$/  profiler: bool = False/' embodied/jax/agent.py && \
     pip3 install -e .
 
 # Install ONNX runtime for inference mode
